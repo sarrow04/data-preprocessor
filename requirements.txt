@@ -1,6 +1,0 @@
-streamlit
-pandas>=2.0.0
-plotly
-numpy
-mojimoji
-scikit-learn
