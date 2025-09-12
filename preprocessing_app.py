@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-"""preprocessing_app_v11_ux_improvement
+"""preprocessing_app_v12_pandas_fix
 
 """
-
 import streamlit as st
 import pandas as pd
 import io
@@ -140,9 +139,7 @@ if st.session_state.df is not None:
                     elif fill_method == "行ごと削除する": df_copy.dropna(subset=[selected_column], inplace=True)
                     st.session_state.df = df_copy; st.success(f"「{selected_column}」列の欠損値処理が完了しました。"); st.rerun()
 
-        # ▼▼▼【ここから大幅改善】▼▼▼
         with st.expander("データ型の変換（数値・文字列）"):
-            # 日付型を除外
             new_type = st.selectbox("変換したいデータ型を選択", ["---", "数値 (int)", "数値 (float)", "文字列 (str)"], key=f"type_{selected_column}")
             if st.button("データ型を変換", key=f"btn_type_{selected_column}"):
                 if new_type != "---":
@@ -164,7 +161,6 @@ if st.session_state.df is not None:
                         st.rerun()
                     except Exception as e: st.error(f"変換に失敗しました: {e}")
         
-        # --- 日付変換専用の新しいセクション ---
         with st.expander("日付型への変換（改善版）"):
             st.write("データの形式に最も近い選択肢を選んでください。内部で面倒な整形（全角→半角、空白除去など）を自動で行います。")
             date_format_option = st.radio(
@@ -181,26 +177,32 @@ if st.session_state.df is not None:
                 try:
                     df_copy = df_main.copy()
                     temp_series = df_copy[selected_column].copy()
+                    pre_missing = temp_series.isnull().sum()
 
                     if date_format_option == "Excelのシリアル値 (例: 45123)":
                         numeric_series = pd.to_numeric(temp_series, errors='coerce')
                         temp_series = pd.to_datetime(numeric_series, unit='D', origin='1899-12-30')
                     else:
-                        # 文字列ベースの変換は、まず強力なクレンジングを行う
-                        s = temp_series.astype(str)
-                        s = s.apply(lambda x: mojimoji.zen_to_han(x, kana=False)) # 全角→半角
-                        s = s.str.replace(r'\s+', '', regex=True) # 全ての空白を除去
-                        s = s.str.replace('元号', 'gannen') # pd.to_datetimeは「元年」を苦手とするため暫定対応
-
+                        s = temp_series.astype(str).dropna()
+                        s = s.apply(lambda x: mojimoji.zen_to_han(x, kana=False))
+                        s = s.str.replace(r'\s+', '', regex=True)
+                        
                         if date_format_option == "標準的な形式 (例: 2023-01-01, 2023/1/1)":
                             temp_series = pd.to_datetime(s, errors='coerce')
+                        # ▼▼▼【ここから修正】▼▼▼
                         elif date_format_option == "日本の形式 (例: 2023年1月1日, 令和5年1月1日)":
-                             # 日本語の元号に対応 (era_japan)
-                            temp_series = pd.to_datetime(s.str.replace('gannen', '1年'), format='%Y年%m月%d日', errors='coerce', era='japan')
+                            # 「元年」を「1年」に置換
+                            s = s.str.replace('元年', '1年')
+                            # まず「年月日」形式を試す
+                            res1 = pd.to_datetime(s, format='%Y年%m月%d日', errors='coerce', era='japan')
+                            # 次に「年月」形式を試す
+                            res2 = pd.to_datetime(s, format='%Y年%m月', errors='coerce', era='japan')
+                            # 両方の結果を結合（res1が成功していればres1を、そうでなければres2を採用）
+                            temp_series = res1.fillna(res2)
+                        # ▲▲▲【ここまで修正】▲▲▲
                         elif date_format_option == "区切り文字なし (例: 20230101)":
                             temp_series = pd.to_datetime(s, format='%Y%m%d', errors='coerce')
                     
-                    pre_missing = df_copy[selected_column].isnull().sum()
                     df_copy[selected_column] = temp_series
                     post_missing = df_copy[selected_column].isnull().sum()
 
@@ -211,7 +213,6 @@ if st.session_state.df is not None:
                 except Exception as e:
                     st.error(f"変換中にエラーが発生しました: {e}")
 
-        # --- 文字列クレンジング（日付用は日付変換に統合されたため、選択肢を減らす） ---
         if pd.api.types.is_string_dtype(df_main[selected_column]):
             with st.expander("文字列のクレンジング"):
                 clean_option = st.selectbox(
@@ -232,7 +233,6 @@ if st.session_state.df is not None:
                         st.rerun()
 
     st.header("🧮 5. 特徴量エンジニアリング")
-    # ... (以降のコードは変更なし) ...
     st.write("機械学習モデルで使いやすいようにデータを変換します。")
     with st.expander("ワンホットエンコーディング"):
         categorical_cols = df_main.select_dtypes(include=['object', 'category']).columns.tolist()
