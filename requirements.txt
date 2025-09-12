@@ -17,7 +17,7 @@ MarkupSafe==3.0.2
 narwhals==2.3.0
 numpy==2.3.2
 packaging==25.0
-pandas==2.3.2
+pandas>=2.0.0
 pefile==2023.2.7
 pillow==11.3.0
 plotly==6.3.0
@@ -45,3 +45,4 @@ urllib3==2.5.0
 watchdog==6.0.0
 mojimoji
 scikit-learn
+
