@@ -10,6 +10,13 @@ import numpy as np
 import mojimoji
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
+# ▼▼▼【デバッグ用コード】ライブラリのバージョンを表示 ▼▼▼
+st.sidebar.subheader("🧪 環境情報")
+st.sidebar.write(f"Pandas Version: **{pd.__version__}**")
+st.sidebar.write(f"Python Version: {sys.version.split(' ')[0]}")
+# ▲▲▲【デバッグ用コード】ここまで ▲▲▲
+
+
 # --- Streamlitアプリの基本設定 ---
 st.set_page_config(page_title="データ前処理サポーター", page_icon="🛠️", layout="wide")
 st.title("🛠️ データ前処理サポーター")
