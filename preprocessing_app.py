@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-preprocessing_app_v15_fixed
-Plotly Expressのグラフ表示エラーを修正した最終版コード
+preprocessing_app_v16_final
+「年月」形式の日付データに対応し、安定性を向上させた最終版コード
 """
 import streamlit as st
 import pandas as pd
@@ -111,14 +111,9 @@ def display_health_check(df):
             else:
                 st.write(f"**{graph_col}** の度数分布（上位20件）")
                 value_counts = df[graph_col].value_counts().nlargest(20)
-                
-                # ▼▼▼ 変更点: Plotlyエラーを修正 ▼▼▼
-                # SeriesをDataFrameに変換し、列名を指定する
                 value_counts_df = value_counts.reset_index()
                 value_counts_df.columns = [graph_col, 'カウント']
                 fig = px.bar(value_counts_df, x=graph_col, y='カウント', title=f'「{graph_col}」のTOP20カテゴリ')
-                # ▲▲▲ 変更ここまで ▲▲▲
-
                 st.plotly_chart(fig, use_container_width=True)
 
 def display_global_cleaning(df):
@@ -211,33 +206,51 @@ def display_column_wise_cleaning(df):
                     numeric_series = pd.to_numeric(temp_series, errors='coerce')
                     temp_series = pd.to_datetime(numeric_series, unit='D', origin='1899-12-30')
                 else:
+                    # 全角→半角、空白除去などの共通前処理
                     s = temp_series.astype(str).dropna()
                     s = s.apply(lambda x: mojimoji.zen_to_han(x, kana=False))
                     s = s.str.replace(r'\s+', '', regex=True)
                     
                     if date_format_option == "標準的な形式 (例: 2023-01-01, 2023/1/1)":
-                        temp_series = pd.to_datetime(s, errors='coerce')
+                        # 「月まで」のデータも考慮して変換
+                        res1 = pd.to_datetime(s, errors='coerce')
+                        res2 = pd.to_datetime(s, format='%Y-%m', errors='coerce')
+                        res3 = pd.to_datetime(s, format='%Y/%m', errors='coerce')
+                        temp_series = res1.fillna(res2).fillna(res3)
+                    
                     elif date_format_option == "日本の形式 (例: 2023年1月1日, 令和5年1月1日)":
-                        def convert_wareki_to_seireki(wareki_text):
-                            if not isinstance(wareki_text, str): return None
-                            wareki_text = wareki_text.replace('元年', '1年')
-                            year_str = wareki_text.split('年')[0]
-                            year = 0
-                            if '令和' in year_str: year = int(year_str.replace('令和', '')) + 2018
-                            elif '平成' in year_str: year = int(year_str.replace('平成', '')) + 1988
-                            elif '昭和' in year_str: year = int(year_str.replace('昭和', '')) + 1925
-                            elif '大正' in year_str: year = int(year_str.replace('大正', '')) + 1911
-                            elif '明治' in year_str: year = int(year_str.replace('明治', '')) + 1867
-                            else: return pd.to_datetime(wareki_text, errors='coerce', format='%Y年%m月%d日')
+                        def convert_japanese_date(jp_date_text):
+                            """「年月日」と「年月」の両方に対応する変換関数"""
+                            if not isinstance(jp_date_text, str): return None
+                            text = jp_date_text.replace('元年', '1年')
                             
                             try:
-                                month_day = wareki_text.split('年')[1]
-                                month = int(month_day.split('月')[0])
-                                day = int(month_day.split('月')[1].replace('日', ''))
-                                return pd.to_datetime(f'{year}-{month}-{day}')
-                            except (IndexError, ValueError): return None
-                        
-                        temp_series = s.apply(convert_wareki_to_seireki)
+                                return pd.to_datetime(text, format='%Y年%m月%d日')
+                            except ValueError:
+                                try:
+                                    return pd.to_datetime(text, format='%Y年%m月')
+                                except ValueError:
+                                    year_str = text.split('年')[0]
+                                    year = 0
+                                    if '令和' in year_str: year = int(year_str.replace('令和', '')) + 2018
+                                    elif '平成' in year_str: year = int(year_str.replace('平成', '')) + 1988
+                                    elif '昭和' in year_str: year = int(year_str.replace('昭和', '')) + 1925
+                                    elif '大正' in year_str: year = int(year_str.replace('大正', '')) + 1911
+                                    elif '明治' in year_str: year = int(year_str.replace('明治', '')) + 1867
+                                    
+                                    if year == 0: return None
+                                    
+                                    month_day_part = text.split('年')[1]
+                                    if '日' in month_day_part:
+                                        month = int(month_day_part.split('月')[0])
+                                        day = int(month_day_part.split('月')[1].replace('日', ''))
+                                    else:
+                                        month = int(month_day_part.replace('月', ''))
+                                        day = 1
+                                    return pd.to_datetime(f'{year}-{month}-{day}')
+
+                        temp_series = s.apply(convert_japanese_date)
+
                     elif date_format_option == "区切り文字なし (例: 20230101)":
                         temp_series = pd.to_datetime(s, format='%Y%m%d', errors='coerce')
                 
