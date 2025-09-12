@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""preprocessing_app_v10_final
+"""preprocessing_app_v11_ux_improvement
 
 """
 
@@ -125,6 +125,7 @@ if st.session_state.df is not None:
     if selected_column:
         col_type = df_main[selected_column].dtype; missing_count = df_main[selected_column].isnull().sum(); st.write(f"選択中の列: **{selected_column}** (データ型: {col_type}, 欠損値: {missing_count}個)")
         st.subheader(f"「{selected_column}」列へのアクション")
+
         if missing_count > 0:
             with st.expander("欠損値の処理"):
                 fill_method = st.radio("欠損値をどうしますか？", ("平均値で埋める", "中央値で埋める", "最頻値で埋める", "指定した値で埋める", "行ごと削除する"), key=f"fill_{selected_column}")
@@ -139,21 +140,10 @@ if st.session_state.df is not None:
                     elif fill_method == "行ごと削除する": df_copy.dropna(subset=[selected_column], inplace=True)
                     st.session_state.df = df_copy; st.success(f"「{selected_column}」列の欠損値処理が完了しました。"); st.rerun()
 
-        with st.expander("データ型の変換"):
-            new_type = st.selectbox("変換したいデータ型を選択", ["---", "数値 (int)", "数値 (float)", "文字列 (str)", "日付 (datetime)"], key=f"type_{selected_column}")
-            date_format_option = None
-            date_format_string = None
-            if new_type == "日付 (datetime)":
-                date_format_option = st.radio(
-                    "日付の変換方法を選択してください",
-                    ("自動で変換を試みる", "特定の書式を指定して変換する", "Excelの日付（シリアル値）から変換する"),
-                    key=f"date_format_radio_{selected_column}"
-                )
-                if date_format_option == "特定の書式を指定して変換する":
-                    st.write("例: データが `20230912` なら `%Y%m%d`、`23-09-12` なら `%y-%m-%d` と入力します。")
-                    date_format_string = st.text_input("日付のフォーマットを入力してください", placeholder="%Y-%m-%d", key=f"date_format_input_{selected_column}")
-                    st.markdown("[フォーマットコードのヘルプ](https://docs.python.org/ja/3/library/datetime.html#strftime-and-strptime-format-codes)")
-
+        # ▼▼▼【ここから大幅改善】▼▼▼
+        with st.expander("データ型の変換（数値・文字列）"):
+            # 日付型を除外
+            new_type = st.selectbox("変換したいデータ型を選択", ["---", "数値 (int)", "数値 (float)", "文字列 (str)"], key=f"type_{selected_column}")
             if st.button("データ型を変換", key=f"btn_type_{selected_column}"):
                 if new_type != "---":
                     try:
@@ -165,60 +155,84 @@ if st.session_state.df is not None:
                             if new_type == "数値 (int)": temp_series = temp_series.astype('Int64')
                         elif new_type == "文字列 (str)":
                             temp_series = temp_series.astype(str)
-                        elif new_type == "日付 (datetime)":
-                            if date_format_option == "特定の書式を指定して変換する" and date_format_string:
-                                temp_series = pd.to_datetime(temp_series, format=date_format_string, errors='coerce')
-                            elif date_format_option == "Excelの日付（シリアル値）から変換する":
-                                numeric_series = pd.to_numeric(temp_series, errors='coerce')
-                                temp_series = pd.to_datetime(numeric_series, unit='D', origin='1899-12-30')
-                            else:
-                                temp_series = pd.to_datetime(temp_series, errors='coerce')
-
+                        
                         df_copy[selected_column] = temp_series
                         post_missing = df_copy[selected_column].isnull().sum()
                         st.session_state.df = df_copy
                         st.success(f"「{selected_column}」列を{new_type}型に変換しました。")
-                        if post_missing > pre_missing:
-                            st.warning(f"{post_missing - pre_missing}個のデータが変換に失敗し、欠損値になりました。")
+                        if post_missing > pre_missing: st.warning(f"{post_missing - pre_missing}個のデータが変換に失敗し、欠損値になりました。")
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"変換に失敗しました: {e}")
+                    except Exception as e: st.error(f"変換に失敗しました: {e}")
         
+        # --- 日付変換専用の新しいセクション ---
+        with st.expander("日付型への変換（改善版）"):
+            st.write("データの形式に最も近い選択肢を選んでください。内部で面倒な整形（全角→半角、空白除去など）を自動で行います。")
+            date_format_option = st.radio(
+                "データの形式を選択",
+                (
+                    "標準的な形式 (例: 2023-01-01, 2023/1/1)",
+                    "日本の形式 (例: 2023年1月1日, 令和5年1月1日)",
+                    "区切り文字なし (例: 20230101)",
+                    "Excelのシリアル値 (例: 45123)"
+                ),
+                key=f"date_format_radio_{selected_column}"
+            )
+            if st.button("日付型に変換を実行", key=f"btn_date_convert_{selected_column}"):
+                try:
+                    df_copy = df_main.copy()
+                    temp_series = df_copy[selected_column].copy()
+
+                    if date_format_option == "Excelのシリアル値 (例: 45123)":
+                        numeric_series = pd.to_numeric(temp_series, errors='coerce')
+                        temp_series = pd.to_datetime(numeric_series, unit='D', origin='1899-12-30')
+                    else:
+                        # 文字列ベースの変換は、まず強力なクレンジングを行う
+                        s = temp_series.astype(str)
+                        s = s.apply(lambda x: mojimoji.zen_to_han(x, kana=False)) # 全角→半角
+                        s = s.str.replace(r'\s+', '', regex=True) # 全ての空白を除去
+                        s = s.str.replace('元号', 'gannen') # pd.to_datetimeは「元年」を苦手とするため暫定対応
+
+                        if date_format_option == "標準的な形式 (例: 2023-01-01, 2023/1/1)":
+                            temp_series = pd.to_datetime(s, errors='coerce')
+                        elif date_format_option == "日本の形式 (例: 2023年1月1日, 令和5年1月1日)":
+                             # 日本語の元号に対応 (era_japan)
+                            temp_series = pd.to_datetime(s.str.replace('gannen', '1年'), format='%Y年%m月%d日', errors='coerce', era='japan')
+                        elif date_format_option == "区切り文字なし (例: 20230101)":
+                            temp_series = pd.to_datetime(s, format='%Y%m%d', errors='coerce')
+                    
+                    pre_missing = df_copy[selected_column].isnull().sum()
+                    df_copy[selected_column] = temp_series
+                    post_missing = df_copy[selected_column].isnull().sum()
+
+                    st.session_state.df = df_copy
+                    st.success("日付型への変換が完了しました。")
+                    if post_missing > pre_missing: st.warning(f"{post_missing - pre_missing}個のデータが変換に失敗し、欠損値になりました。")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"変換中にエラーが発生しました: {e}")
+
+        # --- 文字列クレンジング（日付用は日付変換に統合されたため、選択肢を減らす） ---
         if pd.api.types.is_string_dtype(df_main[selected_column]):
             with st.expander("文字列のクレンジング"):
                 clean_option = st.selectbox(
                      "実行したいクレンジングを選択",
-                     ["---",
-                      "前後の空白を削除",
-                      "すべて小文字に変換",
-                      "すべて大文字に変換",
-                      "全角英数記号を半角に変換",
-                      "日付用の整形（全角→半角、空白除去）"
-                      ],
+                     ["---", "前後の空白を削除", "すべて小文字に変換", "すべて大文字に変換", "全角英数記号を半角に変換"],
                      key=f"clean_{selected_column}"
                 )
                 if st.button("文字列クレンジングを実行", key=f"btn_clean_{selected_column}"):
                     if clean_option != "---":
                         df_copy = df_main.copy()
                         col = df_copy[selected_column].astype(str)
-                        if clean_option == "前後の空白を削除":
-                            df_copy[selected_column] = col.str.strip()
-                        elif clean_option == "すべて小文字に変換":
-                            df_copy[selected_column] = col.str.lower()
-                        elif clean_option == "すべて大文字に変換":
-                            df_copy[selected_column] = col.str.upper()
-                        elif clean_option == "全角英数記号を半角に変換":
-                            df_copy[selected_column] = col.apply(lambda x: mojimoji.zen_to_han(x, kana=False))
-                        elif clean_option == "日付用の整形（全角→半角、空白除去）":
-                            cleaned_col = col.apply(lambda x: mojimoji.zen_to_han(x, kana=False))
-                            cleaned_col = cleaned_col.str.replace(" ", "").str.replace("　", "")
-                            df_copy[selected_column] = cleaned_col
-                        
+                        if clean_option == "前後の空白を削除": df_copy[selected_column] = col.str.strip()
+                        elif clean_option == "すべて小文字に変換": df_copy[selected_column] = col.str.lower()
+                        elif clean_option == "すべて大文字に変換": df_copy[selected_column] = col.str.upper()
+                        elif clean_option == "全角英数記号を半角に変換": df_copy[selected_column] = col.apply(lambda x: mojimoji.zen_to_han(x, kana=False))
                         st.session_state.df = df_copy
                         st.success(f"「{selected_column}」列の「{clean_option}」を実行しました。")
                         st.rerun()
 
     st.header("🧮 5. 特徴量エンジニアリング")
+    # ... (以降のコードは変更なし) ...
     st.write("機械学習モデルで使いやすいようにデータを変換します。")
     with st.expander("ワンホットエンコーディング"):
         categorical_cols = df_main.select_dtypes(include=['object', 'category']).columns.tolist()
