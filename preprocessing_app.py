@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""preprocessing_app_v12_pandas_fix
+"""preprocessing_app_v13_final
 
 """
 import streamlit as st
@@ -9,6 +9,10 @@ import plotly.express as px
 import numpy as np
 import mojimoji
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
+import sys # <--- この行を追加
+
+# --- Streamlitアプリの基本設定 ---
+st.set_page_config(page_title="データ前処理サポーター", page_icon="🛠️", layout="wide")
 
 # ▼▼▼【デバッグ用コード】ライブラリのバージョンを表示 ▼▼▼
 st.sidebar.subheader("🧪 環境情報")
@@ -16,9 +20,6 @@ st.sidebar.write(f"Pandas Version: **{pd.__version__}**")
 st.sidebar.write(f"Python Version: {sys.version.split(' ')[0]}")
 # ▲▲▲【デバッグ用コード】ここまで ▲▲▲
 
-
-# --- Streamlitアプリの基本設定 ---
-st.set_page_config(page_title="データ前処理サポーター", page_icon="🛠️", layout="wide")
 st.title("🛠️ データ前処理サポーター")
 st.write("CSVファイルをアップロードするだけで、データの健康診断とクリーニングができます。")
 
@@ -196,17 +197,11 @@ if st.session_state.df is not None:
                         
                         if date_format_option == "標準的な形式 (例: 2023-01-01, 2023/1/1)":
                             temp_series = pd.to_datetime(s, errors='coerce')
-                        # ▼▼▼【ここから修正】▼▼▼
                         elif date_format_option == "日本の形式 (例: 2023年1月1日, 令和5年1月1日)":
-                            # 「元年」を「1年」に置換
                             s = s.str.replace('元年', '1年')
-                            # まず「年月日」形式を試す
                             res1 = pd.to_datetime(s, format='%Y年%m月%d日', errors='coerce', era='japan')
-                            # 次に「年月」形式を試す
                             res2 = pd.to_datetime(s, format='%Y年%m月', errors='coerce', era='japan')
-                            # 両方の結果を結合（res1が成功していればres1を、そうでなければres2を採用）
                             temp_series = res1.fillna(res2)
-                        # ▲▲▲【ここまで修正】▲▲▲
                         elif date_format_option == "区切り文字なし (例: 20230101)":
                             temp_series = pd.to_datetime(s, format='%Y%m%d', errors='coerce')
                     
