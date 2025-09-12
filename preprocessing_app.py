@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-preprocessing_app_v14_full
-前回のレビューを元に修正・改善を行った完成版コード
+preprocessing_app_v15_fixed
+Plotly Expressのグラフ表示エラーを修正した最終版コード
 """
 import streamlit as st
 import pandas as pd
@@ -24,7 +24,6 @@ if 'target_col' not in st.session_state: st.session_state.target_col = None
 if 'feature_cols' not in st.session_state: st.session_state.feature_cols = None
 
 # --- 3. 各UIセクションの関数化 ---
-# ▼▼▼ 変更点 ▼▼▼ コードの可読性を上げるために、各機能を関数にまとめました。
 
 def display_sidebar():
     """サイドバーのUIを表示し、ファイルアップロードや基本操作を処理する"""
@@ -112,7 +111,14 @@ def display_health_check(df):
             else:
                 st.write(f"**{graph_col}** の度数分布（上位20件）")
                 value_counts = df[graph_col].value_counts().nlargest(20)
-                fig = px.bar(value_counts, x=value_counts.index, y=value_counts.values, title=f'「{graph_col}」のTOP20カテゴリ', labels={'x':graph_col, 'y':'カウント'})
+                
+                # ▼▼▼ 変更点: Plotlyエラーを修正 ▼▼▼
+                # SeriesをDataFrameに変換し、列名を指定する
+                value_counts_df = value_counts.reset_index()
+                value_counts_df.columns = [graph_col, 'カウント']
+                fig = px.bar(value_counts_df, x=graph_col, y='カウント', title=f'「{graph_col}」のTOP20カテゴリ')
+                # ▲▲▲ 変更ここまで ▲▲▲
+
                 st.plotly_chart(fig, use_container_width=True)
 
 def display_global_cleaning(df):
@@ -152,7 +158,6 @@ def display_column_wise_cleaning(df):
     # --- 欠損値の処理 ---
     if missing_count > 0:
         with st.expander("欠損値の処理"):
-            # ▼▼▼ 変更点 ▼▼▼ 数値列以外では「平均値」「中央値」での補完を選択できないように修正
             options = ["最頻値で埋める", "指定した値で埋める", "行ごと削除する"]
             if pd.api.types.is_numeric_dtype(df[selected_column]):
                 options = ["平均値で埋める", "中央値で埋める"] + options
@@ -180,9 +185,8 @@ def display_column_wise_cleaning(df):
                     temp_series = df_copy[selected_column].copy()
                     pre_missing = temp_series.isnull().sum()
                     if new_type in ["数値 (int)", "数値 (float)"]:
-                        # カンマなどを除去してから数値に変換
                         temp_series = pd.to_numeric(temp_series.astype(str).str.replace(r'[^\d.-]', '', regex=True), errors='coerce')
-                        if new_type == "数値 (int)": temp_series = temp_series.astype('Int64') # 欠損値(NaN)を許容する整数型
+                        if new_type == "数値 (int)": temp_series = temp_series.astype('Int64')
                     elif new_type == "文字列 (str)":
                         temp_series = temp_series.astype(str)
                     
@@ -213,7 +217,6 @@ def display_column_wise_cleaning(df):
                     
                     if date_format_option == "標準的な形式 (例: 2023-01-01, 2023/1/1)":
                         temp_series = pd.to_datetime(s, errors='coerce')
-                    # ▼▼▼ 変更点 ▼▼▼ 和暦の変換ロジックを修正
                     elif date_format_option == "日本の形式 (例: 2023年1月1日, 令和5年1月1日)":
                         def convert_wareki_to_seireki(wareki_text):
                             if not isinstance(wareki_text, str): return None
@@ -235,7 +238,6 @@ def display_column_wise_cleaning(df):
                             except (IndexError, ValueError): return None
                         
                         temp_series = s.apply(convert_wareki_to_seireki)
-                    # ▲▲▲ 変更ここまで ▲▲▲
                     elif date_format_option == "区切り文字なし (例: 20230101)":
                         temp_series = pd.to_datetime(s, format='%Y%m%d', errors='coerce')
                 
