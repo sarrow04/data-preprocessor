@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""preprocessing_app_v7_syntax_fix
+"""preprocessing_app_v8_final_fix
 
 """
 
@@ -160,8 +160,6 @@ if st.session_state.df is not None:
                         df_copy = df_main.copy()
                         temp_series = df_copy[selected_column].copy()
                         pre_missing = temp_series.isnull().sum()
-
-                        # ▼▼▼【修正箇所】この行を修正しました ▼▼▼
                         if new_type in ["数値 (int)", "数値 (float)"]:
                             temp_series = pd.to_numeric(temp_series.astype(str).str.replace(r'[^\d.-]', '', regex=True), errors='coerce')
                             if new_type == "数値 (int)": temp_series = temp_series.astype('Int64')
@@ -185,5 +183,82 @@ if st.session_state.df is not None:
                         st.rerun()
                     except Exception as e:
                         st.error(f"変換に失敗しました: {e}")
+        
+        # ▼▼▼【修正箇所】この行と、その中のブロックを正しく修正しました ▼▼▼
+        if pd.api.types.is_string_dtype(df_main[selected_column]):
+            with st.expander("文字列のクレンジング"):
+                clean_option = st.selectbox( "実行したいクレンジングを選択", ["---", "前後の空白を削除", "すべて小文字に変換", "すべて大文字に変換", "全角英数記号を半角に変換"], key=f"clean_{selected_column}")
+                if st.button("文字列クレンジングを実行", key=f"btn_clean_{selected_column}"):
+                    if clean_option != "---":
+                        df_copy = df_main.copy()
+                        col = df_copy[selected_column].astype(str)
+                        if clean_option == "前後の空白を削除": df_copy[selected_column] = col.str.strip()
+                        elif clean_option == "すべて小文字に変換": df_copy[selected_column] = col.str.lower()
+                        elif clean_option == "すべて大文字に変換": df_copy[selected_column] = col.str.upper()
+                        elif clean_option == "全角英数記号を半角に変換": df_copy[selected_column] = col.apply(lambda x: mojimoji.zen_to_han(x, kana=False))
+                        st.session_state.df = df_copy; st.success(f"「{selected_column}」列の「{clean_option}」を実行しました。"); st.rerun()
 
-        if pd.api.types.is_string_dtype(df_main[selected
+    st.header("🧮 5. 特徴量エンジニアリング")
+    st.write("機械学習モデルで使いやすいようにデータを変換します。")
+    with st.expander("ワンホットエンコーディング"):
+        categorical_cols = df_main.select_dtypes(include=['object', 'category']).columns.tolist()
+        ohe_cols = st.multiselect("ワンホットエンコーディングを適用したい列を複数選択", categorical_cols, key="ohe_cols")
+        if st.button("ワンホットエンコーディングを実行"):
+            if ohe_cols:
+                df_copy = df_main.copy()
+                df_copy = pd.get_dummies(df_copy, columns=ohe_cols)
+                st.session_state.df = df_copy
+                st.success("ワンホットエンコーディングを実行しました。")
+                st.rerun()
+            else:
+                st.warning("列が選択されていません。")
+    with st.expander("正規化・標準化"):
+        numeric_cols = df_main.select_dtypes(include=np.number).columns.tolist()
+        scaling_method = st.radio("手法を選択してください", ("最小最大正規化 (Min-Max Scaling)", "標準化 (Standardization)"), key="scaling_method")
+        numeric_cols_selected = st.multiselect("適用したい数値列を複数選択", numeric_cols, key="scaling_cols")
+        if st.button("正規化・標準化を実行"):
+            if numeric_cols_selected:
+                df_copy = df_main.copy()
+                if scaling_method == "最小最大正規化 (Min-Max Scaling)": scaler = MinMaxScaler()
+                else: scaler = StandardScaler()
+                df_copy[numeric_cols_selected] = scaler.fit_transform(df_copy[numeric_cols_selected])
+                st.session_state.df = df_copy
+                st.success(f"「{scaling_method}」を実行しました。")
+                st.rerun()
+            else:
+                st.warning("列が選択されていません。")
+
+    st.header("🎯 6. 目的変数と説明変数の設定")
+    st.write("モデル学習に使用する変数（列）の役割を定義します。")
+
+    if st.session_state.target_col:
+        st.info(f"現在の設定 - 目的変数: **{st.session_state.target_col}**, 説明変数: **{len(st.session_state.feature_cols)}** 個")
+
+    all_columns = df_main.columns.tolist()
+    target_options = ["---"] + all_columns
+    selected_target = st.selectbox("予測したい「目的変数」を1つ選択してください", target_options, index=0, key="target_select")
+
+    if selected_target != "---":
+        available_features = [col for col in all_columns if col != selected_target]
+        selected_features = st.multiselect("予測に使う「説明変数」を1つ以上選択してください", available_features, default=available_features, key="feature_select")
+    else:
+        st.multiselect("予測に使う「説明変数」を1つ以上選択してください", ["まず目的変数を選択してください"], disabled=True, key="feature_select_disabled")
+
+    if st.button("変数の役割を設定"):
+        if selected_target != "---" and len(selected_features) > 0:
+            st.session_state.target_col = selected_target
+            st.session_state.feature_cols = selected_features
+            st.success("目的変数と説明変数を設定しました。")
+            st.rerun()
+        else:
+            st.warning("目的変数と説明変数を正しく選択してください。")
+
+    st.header("✅ 7. 処理済みデータのダウンロード")
+    @st.cache_data
+    def convert_df_to_csv(df):
+        return df.to_csv(index=False).encode('utf-8-sig')
+    csv = convert_df_to_csv(st.session_state.df)
+    st.download_button( label="整形済みデータをCSVでダウンロード", data=csv, file_name='cleaned_data.csv', mime='text/csv')
+
+else:
+    st.info("サイドバーからCSVファイルをアップロードして分析を開始してください。")
