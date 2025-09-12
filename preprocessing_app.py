@@ -32,6 +32,7 @@ with st.sidebar:
     st.header("1. ファイルをアップロード")
     uploaded_file = st.file_uploader("CSVファイルをアップロードしてください", type=['csv'])
     if uploaded_file is not None:
+        # 新しいファイルがアップロードされたら、既存のデータをリセット
         if "uploaded_file_name" not in st.session_state or st.session_state.uploaded_file_name != uploaded_file.name:
             try:
                 df = pd.read_csv(uploaded_file)
@@ -105,11 +106,9 @@ if st.session_state.df is not None:
             else:
                 st.write(f"**{graph_col}** の度数分布（上位20件）")
                 value_counts = df_main[graph_col].value_counts().nlargest(20)
-                # ▼▼▼【修正箇所】SeriesをDataFrameに変換 ▼▼▼
                 value_counts_df = value_counts.reset_index()
-                value_counts_df.columns = [graph_col, 'カウント'] # 列名を[カテゴリ名, 値]に設定
+                value_counts_df.columns = [graph_col, 'カウント']
 
-                # DataFrameと列名を指定してグラフを描画
                 fig = px.bar(value_counts_df, x=graph_col, y='カウント',
                              title=f'「{graph_col}」のTOP20カテゴリ')
                 st.plotly_chart(fig, use_container_width=True)
@@ -182,3 +181,71 @@ if st.session_state.df is not None:
                         if clean_option == "前後の空白を削除": df_copy[selected_column] = col.str.strip()
                         elif clean_option == "すべて小文字に変換": df_copy[selected_column] = col.str.lower()
                         elif clean_option == "すべて大文字に変換": df_copy[selected_column] = col.str.upper()
+                        elif clean_option == "全角英数記号を半角に変換": df_copy[selected_column] = col.apply(lambda x: mojimoji.zen_to_han(x, kana=False))
+                        st.session_state.df = df_copy; st.success(f"「{selected_column}」列の「{clean_option}」を実行しました。"); st.rerun()
+
+    st.header("🧮 5. 特徴量エンジニアリング")
+    st.write("機械学習モデルで使いやすいようにデータを変換します。")
+    with st.expander("ワンホットエンコーディング"):
+        categorical_cols = df_main.select_dtypes(include=['object', 'category']).columns.tolist()
+        ohe_cols = st.multiselect("ワンホットエンコーディングを適用したい列を複数選択", categorical_cols, key="ohe_cols")
+        if st.button("ワンホットエンコーディングを実行"):
+            if ohe_cols:
+                df_copy = df_main.copy()
+                df_copy = pd.get_dummies(df_copy, columns=ohe_cols)
+                st.session_state.df = df_copy
+                st.success("ワンホットエンコーディングを実行しました。")
+                st.rerun()
+            else:
+                st.warning("列が選択されていません。")
+    with st.expander("正規化・標準化"):
+        numeric_cols = df_main.select_dtypes(include=np.number).columns.tolist()
+        scaling_method = st.radio("手法を選択してください", ("最小最大正規化 (Min-Max Scaling)", "標準化 (Standardization)"), key="scaling_method")
+        numeric_cols_selected = st.multiselect("適用したい数値列を複数選択", numeric_cols, key="scaling_cols")
+        if st.button("正規化・標準化を実行"):
+            if numeric_cols_selected:
+                df_copy = df_main.copy()
+                if scaling_method == "最小最大正規化 (Min-Max Scaling)": scaler = MinMaxScaler()
+                else: scaler = StandardScaler()
+                df_copy[numeric_cols_selected] = scaler.fit_transform(df_copy[numeric_cols_selected])
+                st.session_state.df = df_copy
+                st.success(f"「{scaling_method}」を実行しました。")
+                st.rerun()
+            else:
+                st.warning("列が選択されていません。")
+
+    st.header("🎯 6. 目的変数と説明変数の設定")
+    st.write("モデル学習に使用する変数（列）の役割を定義します。")
+
+    if st.session_state.target_col:
+        st.info(f"現在の設定 - 目的変数: **{st.session_state.target_col}**, 説明変数: **{len(st.session_state.feature_cols)}** 個")
+
+    all_columns = df_main.columns.tolist()
+    target_options = ["---"] + all_columns
+    selected_target = st.selectbox("予測したい「目的変数」を1つ選択してください", target_options, index=0)
+
+    if selected_target != "---":
+        available_features = [col for col in all_columns if col != selected_target]
+        selected_features = st.multiselect("予測に使う「説明変数」を1つ以上選択してください", available_features, default=available_features)
+    else:
+        # プレースホルダーとして、操作不能なUIを表示
+        st.multiselect("予測に使う「説明変数」を1つ以上選択してください", ["まず目的変数を選択してください"], disabled=True)
+
+    if st.button("変数の役割を設定"):
+        if selected_target != "---" and len(selected_features) > 0:
+            st.session_state.target_col = selected_target
+            st.session_state.feature_cols = selected_features
+            st.success("目的変数と説明変数を設定しました。")
+            st.rerun()
+        else:
+            st.warning("目的変数と説明変数を正しく選択してください。")
+
+    st.header("✅ 7. 処理済みデータのダウンロード")
+    @st.cache_data
+    def convert_df_to_csv(df):
+        return df.to_csv(index=False).encode('utf-8-sig')
+    csv = convert_df_to_csv(st.session_state.df)
+    st.download_button( label="整形済みデータをCSVでダウンロード", data=csv, file_name='cleaned_data.csv', mime='text/csv')
+
+else:
+    st.info("サイドバーからCSVファイルをアップロードして分析を開始してください。")
