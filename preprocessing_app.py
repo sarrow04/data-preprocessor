@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-preprocessing_app_v24_final
-ヘッダー行として0行目を指定した際のバグを修正し、安定性を向上させた最終版
+preprocessing_app_v25_final
+列ごとの処理において、最初のデータ行を除外するオプションを追加した最終版
 """
 import streamlit as st
 import pandas as pd
@@ -133,25 +133,18 @@ def display_global_cleaning(df):
         help="例えば「4」と入力すると、0〜3行目が削除され、4行目が新しい列名になります。"
     )
 
-    # ▼▼▼ 変更点: 0行目を指定した場合でも正しく動作するように修正 ▼▼▼
     if st.button("指定行をヘッダーとして設定し、それより上を削除"):
         try:
             df_copy = df.copy()
-            # 指定された行を新しいヘッダーとして取得し、必ず文字列に変換する
             new_header = df_copy.iloc[header_row].astype(str)
-            # 指定された行の次からを新しいデータフレームとする
             df_copy = df_copy.iloc[header_row+1:]
-            # ヘッダーをセット
             df_copy.columns = new_header
-            # インデックスをリセット
             df_copy.reset_index(drop=True, inplace=True)
-            
             st.session_state.df = df_copy
             st.success(f"{header_row}行目を新しいヘッダーに設定し、データフレームを更新しました。")
             st.rerun()
         except Exception as e:
             st.error(f"処理中にエラーが発生しました: {e}")
-    # ▲▲▲ 変更ここまで ▲▲▲
     st.markdown("---")
 
     st.subheader("列の一括削除")
@@ -176,6 +169,11 @@ def display_column_wise_cleaning(df):
     
     if selected_column is None: return
 
+    # ▼▼▼ 新機能: 最初の行を除外するチェックボックス ▼▼▼
+    exclude_first_row = st.checkbox("最初のデータ行（0行目）を処理から除外する", key=f"exclude_first_{selected_column}", help="ヘッダー直下の単位などが記載された行を、変換や計算などの処理対象から外します。")
+    st.markdown("---")
+    # ▲▲▲ ここまで ▲▲▲
+
     col_type = df[selected_column].dtype
     missing_count = df[selected_column].isnull().sum()
     st.write(f"選択中の列: **{selected_column}** (データ型: {col_type}, 欠損値: {missing_count}個)")
@@ -191,12 +189,25 @@ def display_column_wise_cleaning(df):
             if fill_method == "指定した値で埋める": fill_value = st.text_input("埋める値を入力してください")
             if st.button("欠損値処理を実行", key=f"btn_fill_{selected_column}"):
                 df_copy = df.copy()
-                if fill_method == "平均値で埋める": df_copy[selected_column].fillna(df_copy[selected_column].mean(), inplace=True)
-                elif fill_method == "中央値で埋める": df_copy[selected_column].fillna(df_copy[selected_column].median(), inplace=True)
-                elif fill_method == "最頻値で埋める": df_copy[selected_column].fillna(df_copy[selected_column].mode()[0], inplace=True)
-                elif fill_method == "指定した値で埋める" and fill_value: df_copy[selected_column].fillna(fill_value, inplace=True)
-                elif fill_method == "行ごと削除する": df_copy.dropna(subset=[selected_column], inplace=True)
-                st.session_state.df = df_copy; st.success(f"「{selected_column}」列の欠損値処理が完了しました。"); st.rerun()
+                series_to_process = df_copy[selected_column].iloc[1:] if exclude_first_row else df_copy[selected_column]
+                
+                if fill_method == "平均値で埋める": series_to_process.fillna(series_to_process.mean(), inplace=True)
+                elif fill_method == "中央値で埋める": series_to_process.fillna(series_to_process.median(), inplace=True)
+                elif fill_method == "最頻値で埋める": series_to_process.fillna(series_to_process.mode()[0], inplace=True)
+                elif fill_method == "指定した値で埋める" and fill_value: series_to_process.fillna(fill_value, inplace=True)
+                elif fill_method == "行ごと削除する": series_to_process.dropna(inplace=True) # Note: this will only affect the slice
+                
+                df_copy[selected_column].update(series_to_process)
+                if fill_method == "行ごと削除する": # For dropna, we need to handle the whole dataframe
+                    subset_to_check = df_copy.index.isin(series_to_process.index)
+                    if exclude_first_row:
+                        indices_to_drop = df_copy.index[1:][~subset_to_check[1:]]
+                    else:
+                        indices_to_drop = df_copy.index[~subset_to_check]
+                    df_copy.drop(indices_to_drop, inplace=True)
+
+                st.session_state.df = df_copy
+                st.success(f"「{selected_column}」列の欠損値処理が完了しました。"); st.rerun()
 
     with st.expander("データ型の変換（数値・文字列）"):
         new_type = st.selectbox("変換したいデータ型を選択", ["---", "数値 (int)", "数値 (float)", "文字列 (str)"], key=f"type_{selected_column}")
@@ -204,14 +215,21 @@ def display_column_wise_cleaning(df):
             if new_type != "---":
                 try:
                     df_copy = df.copy()
-                    temp_series = df_copy[selected_column].copy()
-                    pre_missing = temp_series.isnull().sum()
+                    series_to_modify = df_copy[selected_column]
+                    target_slice = series_to_modify.iloc[1:] if exclude_first_row and len(series_to_modify) > 0 else series_to_modify
+                    pre_missing = target_slice.isnull().sum()
+
                     if new_type in ["数値 (int)", "数値 (float)"]:
-                        temp_series = pd.to_numeric(temp_series.astype(str).str.replace(r'[^\d.-]', '', regex=True), errors='coerce')
-                        if new_type == "数値 (int)": temp_series = temp_series.astype('Int64')
-                    elif new_type == "文字列 (str)": temp_series = temp_series.astype(str)
-                    df_copy[selected_column] = temp_series
-                    post_missing = df_copy[selected_column].isnull().sum()
+                        processed_slice = pd.to_numeric(target_slice.astype(str).str.replace(r'[^\d.-]', '', regex=True), errors='coerce')
+                        if new_type == "数値 (int)": processed_slice = processed_slice.astype('Int64')
+                    elif new_type == "文字列 (str)":
+                        processed_slice = target_slice.astype(str)
+                    
+                    final_series = series_to_modify.copy()
+                    final_series.update(processed_slice)
+                    df_copy[selected_column] = final_series
+                    
+                    post_missing = final_series.isnull().sum()
                     st.session_state.df = df_copy
                     st.success(f"「{selected_column}」列を{new_type}型に変換しました。")
                     if post_missing > pre_missing: st.warning(f"{post_missing - pre_missing}個のデータが変換に失敗し、欠損値になりました。")
@@ -224,22 +242,23 @@ def display_column_wise_cleaning(df):
             try:
                 df_copy = df.copy()
                 col_name = selected_column
-                original_series = df_copy[col_name]
-                pre_missing = original_series.isnull().sum()
+                series_to_modify = df_copy[col_name]
+                target_slice = series_to_modify.iloc[1:] if exclude_first_row and len(series_to_modify) > 0 else series_to_modify
+                pre_missing = target_slice.isnull().sum()
                 
-                converted_series = None
+                converted_slice = None
                 if date_format_option == "Excelのシリアル値 (例: 45123)":
-                    numeric_series = pd.to_numeric(original_series, errors='coerce')
-                    converted_series = pd.to_datetime(numeric_series, unit='D', origin='1899-12-30')
+                    numeric_series = pd.to_numeric(target_slice, errors='coerce')
+                    converted_slice = pd.to_datetime(numeric_series, unit='D', origin='1899-12-30')
                 else:
-                    s = original_series.astype(str).dropna()
+                    s = target_slice.astype(str).dropna()
                     s = s.apply(lambda x: mojimoji.zen_to_han(x, kana=False))
                     s = s.str.replace(r'\s+', '', regex=True)
                     if date_format_option == "標準的な形式 (例: 2023-01-01, 2023/1/1)":
                         res1 = pd.to_datetime(s, errors='coerce')
                         res2 = pd.to_datetime(s, format='%Y-%m', errors='coerce')
                         res3 = pd.to_datetime(s, format='%Y/%m', errors='coerce')
-                        converted_series = res1.fillna(res2).fillna(res3)
+                        converted_slice = res1.fillna(res2).fillna(res3)
                     elif date_format_option == "日本の形式 (例: 2023年1月1日, 令和5年1月1日)":
                         def convert_japanese_date(jp_date_text):
                             if not isinstance(jp_date_text, str): return None
@@ -262,15 +281,15 @@ def display_column_wise_cleaning(df):
                                     else:
                                         month = int(month_day_part.replace('月', '')); day = 1
                                     return pd.to_datetime(f'{year}-{month}-{day}')
-                        converted_series = s.apply(convert_japanese_date)
+                        converted_slice = s.apply(convert_japanese_date)
                     elif date_format_option == "区切り文字なし (例: 20230101)":
-                        converted_series = pd.to_datetime(s, format='%Y%m%d', errors='coerce')
+                        converted_slice = pd.to_datetime(s, format='%Y%m%d', errors='coerce')
                 
-                if converted_series is not None:
-                    col_position = df_copy.columns.get_loc(col_name)
-                    df_copy = df_copy.drop(columns=[col_name])
-                    df_copy.insert(loc=col_position, column=col_name, value=converted_series)
-
+                final_series = series_to_modify.copy()
+                if converted_slice is not None:
+                    final_series.update(converted_slice)
+                
+                df_copy[col_name] = final_series
                 post_missing = df_copy[col_name].isnull().sum()
                 st.session_state.df = df_copy; st.success("日付型への変換が完了しました。")
                 if post_missing > pre_missing: st.warning(f"{post_missing - pre_missing}個のデータが変換に失敗し、欠損値になりました。")
@@ -283,11 +302,19 @@ def display_column_wise_cleaning(df):
             if st.button("文字列クレンジングを実行", key=f"btn_clean_{selected_column}"):
                 if clean_option != "---":
                     df_copy = df.copy()
-                    col = df_copy[selected_column].astype(str)
-                    if clean_option == "前後の空白を削除": df_copy[selected_column] = col.str.strip()
-                    elif clean_option == "すべて小文字に変換": df_copy[selected_column] = col.str.lower()
-                    elif clean_option == "すべて大文字に変換": df_copy[selected_column] = col.str.upper()
-                    elif clean_option == "全角英数記号を半角に変換": df_copy[selected_column] = col.apply(lambda x: mojimoji.zen_to_han(x, kana=False))
+                    series_to_modify = df_copy[selected_column]
+                    target_slice = series_to_modify.iloc[1:] if exclude_first_row and len(series_to_modify) > 0 else series_to_modify
+                    
+                    col = target_slice.astype(str)
+                    if clean_option == "前後の空白を削除": processed_slice = col.str.strip()
+                    elif clean_option == "すべて小文字に変換": processed_slice = col.str.lower()
+                    elif clean_option == "すべて大文字に変換": processed_slice = col.str.upper()
+                    elif clean_option == "全角英数記号を半角に変換": processed_slice = col.apply(lambda x: mojimoji.zen_to_han(x, kana=False))
+                    
+                    final_series = series_to_modify.copy()
+                    final_series.update(processed_slice)
+                    df_copy[selected_column] = final_series
+                    
                     st.session_state.df = df_copy; st.success(f"「{selected_column}」列の「{clean_option}」を実行しました。"); st.rerun()
 
 def display_feature_engineering(df):
@@ -299,10 +326,8 @@ def display_feature_engineering(df):
         if st.button("ワンホットエンコーディングを実行"):
             if ohe_cols:
                 st.session_state.df = pd.get_dummies(df, columns=ohe_cols, dtype=float)
-                st.success("ワンホットエンコーディングを実行しました。")
-                st.rerun()
-            else:
-                st.warning("列が選択されていません。")
+                st.success("ワンホットエンコーディングを実行しました。"); st.rerun()
+            else: st.warning("列が選択されていません。")
     with st.expander("正規化・標準化"):
         numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
         scaling_method = st.radio("手法を選択してください", ("最小最大正規化 (Min-Max Scaling)", "標準化 (Standardization)"), key="scaling_method")
@@ -314,10 +339,8 @@ def display_feature_engineering(df):
                 else: scaler = StandardScaler()
                 df_copy[numeric_cols_selected] = scaler.fit_transform(df_copy[numeric_cols_selected])
                 st.session_state.df = df_copy
-                st.success(f"「{scaling_method}」を実行しました。")
-                st.rerun()
-            else:
-                st.warning("列が選択されていません。")
+                st.success(f"「{scaling_method}」を実行しました。"); st.rerun()
+            else: st.warning("列が選択されていません。")
 
 def display_variable_settings(df):
     st.header("🎯 目的変数と説明変数の設定")
@@ -336,10 +359,8 @@ def display_variable_settings(df):
         if selected_target != "---" and len(selected_features) > 0:
             st.session_state.target_col = selected_target
             st.session_state.feature_cols = selected_features
-            st.success("目的変数と説明変数を設定しました。")
-            st.rerun()
-        else:
-            st.warning("目的変数と説明変数を正しく選択してください。")
+            st.success("目的変数と説明変数を設定しました。"); st.rerun()
+        else: st.warning("目的変数と説明変数を正しく選択してください。")
 
 def display_download_button(df):
     st.header("✅ 処理済みデータのダウンロード")
