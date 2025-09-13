@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-preprocessing_app_v17_header
-指定行をヘッダーとし、それより前の行を削除する機能を追加した最終版コード
+preprocessing_app_v18_fix
+列名が数値の0である場合に、対話型クリーニングが機能しないバグを修正した最終版
 """
 import streamlit as st
 import pandas as pd
@@ -33,7 +33,8 @@ def display_sidebar():
         if uploaded_file is not None:
             if st.session_state.uploaded_file_name != uploaded_file.name:
                 try:
-                    df = pd.read_csv(uploaded_file, header=None) # ヘッダーなしで読み込む
+                    # ヘッダーなしで読み込み、後からユーザーがヘッダー行を指定できるようにする
+                    df = pd.read_csv(uploaded_file, header=None) 
                     st.session_state.uploaded_file_name = uploaded_file.name
                     st.session_state.df = df
                     st.session_state.original_df = df.copy()
@@ -45,10 +46,10 @@ def display_sidebar():
 
         if st.session_state.df is not None:
             st.header('2. 前処理ツール')
-
             with st.expander('列の四則演算'):
                 df_sidebar = st.session_state.df
-                numeric_cols_sidebar = df_sidebar.select_dtypes(include=np.number).columns.tolist()
+                # 数値型の列のみを対象とする
+                numeric_cols_sidebar = [c for c in df_sidebar.columns if pd.api.types.is_numeric_dtype(df_sidebar[c])]
                 operation = st.selectbox('実行したい操作を選択', ['---', '列の合計', '列の積', '列の差', '列の商'])
                 if operation != '---':
                     if operation in ['列の差', '列の商']:
@@ -97,13 +98,15 @@ def display_health_check(df):
         st.subheader("列の分布をグラフで確認")
         graph_col = st.selectbox("グラフを表示する列を選択", df.columns, key="graph_col")
         if graph_col is not None:
-            if pd.api.types.is_numeric_dtype(df[graph_col]):
+            # Dropna for plotting to avoid errors with mixed types or NaNs
+            plot_series = df[graph_col].dropna()
+            if pd.api.types.is_numeric_dtype(plot_series) and not plot_series.empty:
                 st.write(f"**{graph_col}** のヒストグラム")
-                fig = px.histogram(df, x=graph_col, title=f'「{graph_col}」の分布')
+                fig = px.histogram(plot_series, x=graph_col, title=f'「{graph_col}」の分布')
                 st.plotly_chart(fig, use_container_width=True)
-            else:
+            elif not plot_series.empty:
                 st.write(f"**{graph_col}** の度数分布（上位20件）")
-                value_counts = df[graph_col].value_counts().nlargest(20)
+                value_counts = plot_series.value_counts().nlargest(20)
                 value_counts_df = value_counts.reset_index()
                 value_counts_df.columns = [str(graph_col), 'カウント']
                 fig = px.bar(value_counts_df, x=str(graph_col), y='カウント', title=f'「{graph_col}」のTOP20カテゴリ')
@@ -113,7 +116,6 @@ def display_global_cleaning(df):
     """「データ全体のクリーニング」セクションを表示する"""
     st.header("🧹 データ全体のクリーニング")
 
-    # ▼▼▼ 新機能 ▼▼▼
     st.subheader("先頭行の削除（ヘッダー行の指定）")
     st.write("CSVファイルの上部に説明書きなどが含まれている場合、データ本体が始まる行を指定して不要な行を削除します。")
     
@@ -143,7 +145,6 @@ def display_global_cleaning(df):
         else:
             st.info("0行目が選択されているため、処理は実行されませんでした。")
     st.markdown("---")
-    # ▲▲▲ ここまで ▲▲▲
 
     st.subheader("列の一括削除")
     columns_to_drop = st.multiselect('不要な列を複数選択できます。', df.columns)
@@ -165,7 +166,13 @@ def display_column_wise_cleaning(df):
     st.header("💊 列ごとの対話型クリーニング")
     st.write("処理したい列を選択し、アクションを実行してください。")
     selected_column = st.selectbox("処理対象の列を選択してください", df.columns)
-    if not selected_column: return
+    
+    # ▼▼▼ 変更点: バグ修正 ▼▼▼
+    # if not selected_column: だと、列名が0の場合にTrueと判定されてしまう
+    # Noneかどうかを明示的にチェックすることで、0という列名を正しく扱えるようにする
+    if selected_column is None: 
+        return
+    # ▲▲▲ 変更ここまで ▲▲▲
 
     col_type = df[selected_column].dtype
     missing_count = df[selected_column].isnull().sum()
@@ -187,8 +194,7 @@ def display_column_wise_cleaning(df):
                 elif fill_method == "最頻値で埋める": df_copy[selected_column].fillna(df_copy[selected_column].mode()[0], inplace=True)
                 elif fill_method == "指定した値で埋める" and fill_value: df_copy[selected_column].fillna(fill_value, inplace=True)
                 elif fill_method == "行ごと削除する": df_copy.dropna(subset=[selected_column], inplace=True)
-                st.session_state.df = df_copy
-                st.success(f"「{selected_column}」列の欠損値処理が完了しました。"); st.rerun()
+                st.session_state.df = df_copy; st.success(f"「{selected_column}」列の欠損値処理が完了しました。"); st.rerun()
 
     with st.expander("データ型の変換（数値・文字列）"):
         new_type = st.selectbox("変換したいデータ型を選択", ["---", "数値 (int)", "数値 (float)", "文字列 (str)"], key=f"type_{selected_column}")
@@ -259,8 +265,7 @@ def display_column_wise_cleaning(df):
                         temp_series = pd.to_datetime(s, format='%Y%m%d', errors='coerce')
                 df_copy[selected_column] = temp_series
                 post_missing = df_copy[selected_column].isnull().sum()
-                st.session_state.df = df_copy
-                st.success("日付型への変換が完了しました。")
+                st.session_state.df = df_copy; st.success("日付型への変換が完了しました。")
                 if post_missing > pre_missing: st.warning(f"{post_missing - pre_missing}個のデータが変換に失敗し、欠損値になりました。")
                 st.rerun()
             except Exception as e: st.error(f"変換中にエラーが発生しました: {e}")
@@ -276,8 +281,7 @@ def display_column_wise_cleaning(df):
                     elif clean_option == "すべて小文字に変換": df_copy[selected_column] = col.str.lower()
                     elif clean_option == "すべて大文字に変換": df_copy[selected_column] = col.str.upper()
                     elif clean_option == "全角英数記号を半角に変換": df_copy[selected_column] = col.apply(lambda x: mojimoji.zen_to_han(x, kana=False))
-                    st.session_state.df = df_copy
-                    st.success(f"「{selected_column}」列の「{clean_option}」を実行しました。"); st.rerun()
+                    st.session_state.df = df_copy; st.success(f"「{selected_column}」列の「{clean_option}」を実行しました。"); st.rerun()
 
 def display_feature_engineering(df):
     st.header("🧮 特徴量エンジニアリング")
@@ -291,7 +295,7 @@ def display_feature_engineering(df):
                 st.success("ワンホットエンコーディングを実行しました。"); st.rerun()
             else: st.warning("列が選択されていません。")
     with st.expander("正規化・標準化"):
-        numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
+        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
         scaling_method = st.radio("手法を選択してください", ("最小最大正規化 (Min-Max Scaling)", "標準化 (Standardization)"), key="scaling_method")
         numeric_cols_selected = st.multiselect("適用したい数値列を複数選択", numeric_cols, key="scaling_cols")
         if st.button("正規化・標準化を実行"):
@@ -300,8 +304,7 @@ def display_feature_engineering(df):
                 if scaling_method == "最小最大正規化 (Min-Max Scaling)": scaler = MinMaxScaler()
                 else: scaler = StandardScaler()
                 df_copy[numeric_cols_selected] = scaler.fit_transform(df_copy[numeric_cols_selected])
-                st.session_state.df = df_copy
-                st.success(f"「{scaling_method}」を実行しました。"); st.rerun()
+                st.session_state.df = df_copy; st.success(f"「{scaling_method}」を実行しました。"); st.rerun()
             else: st.warning("列が選択されていません。")
 
 def display_variable_settings(df):
