@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-preprocessing_app_v23_final
-CSVファイルの文字コード問題を自動判別して解決する機能を搭載した最終安定版
+preprocessing_app_v24_final
+ヘッダー行として0行目を指定した際のバグを修正し、安定性を向上させた最終版
 """
 import streamlit as st
 import pandas as pd
@@ -32,23 +32,19 @@ def display_sidebar():
         
         if uploaded_file is not None:
             if st.session_state.uploaded_file_name != uploaded_file.name:
-                df = None  # 初期化
+                df = None
                 try:
-                    # ▼▼▼ 変更点: 文字コード自動判別 ▼▼▼
-                    # まずUTF-8で試す
                     df = pd.read_csv(uploaded_file, header=None)
                 except UnicodeDecodeError:
                     try:
-                        # UTF-8で失敗した場合、Shift-JISで再試行
                         st.sidebar.warning("UTF-8での読み込みに失敗。Shift-JISで再試行します。")
-                        uploaded_file.seek(0) # ファイルポインタを先頭に戻す
+                        uploaded_file.seek(0)
                         df = pd.read_csv(uploaded_file, header=None, encoding='cp932')
                     except Exception as e:
                         st.error(f"Shift-JISでも読み込みに失敗しました: {e}")
                 except Exception as e:
                     st.error(f"ファイルの読み込み中に予期せぬエラーが発生しました: {e}")
                 
-                # dfが正常に読み込めた場合のみsession_stateを更新
                 if df is not None:
                     st.session_state.uploaded_file_name = uploaded_file.name
                     st.session_state.df = df
@@ -57,9 +53,7 @@ def display_sidebar():
                     st.session_state.feature_cols = None
                     st.sidebar.success("ファイルが正常に読み込まれました！")
                 else:
-                    # 失敗した場合はdfをNoneにしておく
                     st.session_state.df = None
-                # ▲▲▲ 変更ここまで ▲▲▲
 
         if st.session_state.df is not None:
             st.header('2. 前処理ツール')
@@ -139,19 +133,25 @@ def display_global_cleaning(df):
         help="例えば「4」と入力すると、0〜3行目が削除され、4行目が新しい列名になります。"
     )
 
+    # ▼▼▼ 変更点: 0行目を指定した場合でも正しく動作するように修正 ▼▼▼
     if st.button("指定行をヘッダーとして設定し、それより上を削除"):
-        if header_row > 0:
-            try:
-                df_copy = df.copy()
-                new_header = df_copy.iloc[header_row]
-                df_copy = df_copy.iloc[header_row+1:]
-                df_copy.columns = new_header
-                df_copy.reset_index(drop=True, inplace=True)
-                st.session_state.df = df_copy
-                st.success(f"{header_row}行目を新しいヘッダーに設定し、それより上の行を削除しました。")
-                st.rerun()
-            except Exception as e: st.error(f"処理中にエラーが発生しました: {e}")
-        else: st.info("0行目が選択されているため、処理は実行されませんでした。")
+        try:
+            df_copy = df.copy()
+            # 指定された行を新しいヘッダーとして取得し、必ず文字列に変換する
+            new_header = df_copy.iloc[header_row].astype(str)
+            # 指定された行の次からを新しいデータフレームとする
+            df_copy = df_copy.iloc[header_row+1:]
+            # ヘッダーをセット
+            df_copy.columns = new_header
+            # インデックスをリセット
+            df_copy.reset_index(drop=True, inplace=True)
+            
+            st.session_state.df = df_copy
+            st.success(f"{header_row}行目を新しいヘッダーに設定し、データフレームを更新しました。")
+            st.rerun()
+        except Exception as e:
+            st.error(f"処理中にエラーが発生しました: {e}")
+    # ▲▲▲ 変更ここまで ▲▲▲
     st.markdown("---")
 
     st.subheader("列の一括削除")
