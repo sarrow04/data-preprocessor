@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-preprocessing_app_v21_final
-日付変換処理時にカラム名が失われるバグに対し、列の削除と再挿入という
-より強力な対策を施した最終版
+preprocessing_app_v22_final
+IndentationErrorを修正した最終安定版
 """
 import streamlit as st
 import pandas as pd
@@ -249,15 +248,10 @@ def display_column_wise_cleaning(df):
                     elif date_format_option == "区切り文字なし (例: 20230101)":
                         converted_series = pd.to_datetime(s, format='%Y%m%d', errors='coerce')
                 
-                # ▼▼▼ 変更点: 列の置換方法をより強力なものに変更 ▼▼▼
                 if converted_series is not None:
-                    # 1. 元の列の場所を覚えておく
                     col_position = df_copy.columns.get_loc(col_name)
-                    # 2. 元の列を名前で完全に削除する
                     df_copy = df_copy.drop(columns=[col_name])
-                    # 3. 変換済みのデータを、元の場所・元の名前で挿入し直す
                     df_copy.insert(loc=col_position, column=col_name, value=converted_series)
-                # ▲▲▲ 変更ここまで ▲▲▲
 
                 post_missing = df_copy[col_name].isnull().sum()
                 st.session_state.df = df_copy; st.success("日付型への変換が完了しました。")
@@ -282,3 +276,75 @@ def display_feature_engineering(df):
     st.header("🧮 特徴量エンジニアリング")
     st.write("機械学習モデルで使いやすいようにデータを変換します。")
     with st.expander("ワンホットエンコーディング"):
+        categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+        ohe_cols = st.multiselect("ワンホットエンコーディングを適用したい列を複数選択", categorical_cols, key="ohe_cols")
+        if st.button("ワンホットエンコーディングを実行"):
+            if ohe_cols:
+                st.session_state.df = pd.get_dummies(df, columns=ohe_cols, dtype=float)
+                st.success("ワンホットエンコーディングを実行しました。")
+                st.rerun()
+            else:
+                st.warning("列が選択されていません。")
+    with st.expander("正規化・標準化"):
+        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        scaling_method = st.radio("手法を選択してください", ("最小最大正規化 (Min-Max Scaling)", "標準化 (Standardization)"), key="scaling_method")
+        numeric_cols_selected = st.multiselect("適用したい数値列を複数選択", numeric_cols, key="scaling_cols")
+        if st.button("正規化・標準化を実行"):
+            if numeric_cols_selected:
+                df_copy = df.copy()
+                if scaling_method == "最小最大正規化 (Min-Max Scaling)": scaler = MinMaxScaler()
+                else: scaler = StandardScaler()
+                df_copy[numeric_cols_selected] = scaler.fit_transform(df_copy[numeric_cols_selected])
+                st.session_state.df = df_copy
+                st.success(f"「{scaling_method}」を実行しました。")
+                st.rerun()
+            else:
+                st.warning("列が選択されていません。")
+
+def display_variable_settings(df):
+    st.header("🎯 目的変数と説明変数の設定")
+    st.write("モデル学習に使用する変数（列）の役割を定義します。")
+    if st.session_state.target_col:
+        st.info(f"現在の設定 - 目的変数: **{st.session_state.target_col}**, 説明変数: **{len(st.session_state.feature_cols)}** 個")
+    all_columns = df.columns.tolist()
+    target_options = ["---"] + all_columns
+    selected_target = st.selectbox("予測したい「目的変数」を1つ選択してください", target_options, index=0, key="target_select")
+    if selected_target != "---":
+        available_features = [col for col in all_columns if col != selected_target]
+        selected_features = st.multiselect("予測に使う「説明変数」を1つ以上選択してください", available_features, default=available_features, key="feature_select")
+    else:
+        st.multiselect("予測に使う「説明変数」を1つ以上選択してください", ["まず目的変数を選択してください"], disabled=True, key="feature_select_disabled")
+    if st.button("変数の役割を設定"):
+        if selected_target != "---" and len(selected_features) > 0:
+            st.session_state.target_col = selected_target
+            st.session_state.feature_cols = selected_features
+            st.success("目的変数と説明変数を設定しました。")
+            st.rerun()
+        else:
+            st.warning("目的変数と説明変数を正しく選択してください。")
+
+def display_download_button(df):
+    st.header("✅ 処理済みデータのダウンロード")
+    @st.cache_data
+    def convert_df_to_csv(df_to_convert):
+        return df_to_convert.to_csv(index=False).encode('utf-8-sig')
+    csv = convert_df_to_csv(df)
+    st.download_button(label="整形済みデータをCSVでダウンロード", data=csv, file_name='cleaned_data.csv', mime='text/csv')
+
+def main():
+    st.title("🛠️ データ前処理サポーター")
+    st.write("CSVファイルをアップロードするだけで、データの健康診断とクリーニングができます。")
+    display_sidebar()
+    if st.session_state.df is not None:
+        df_main = st.session_state.df
+        display_health_check(df_main)
+        display_global_cleaning(df_main)
+        display_column_wise_cleaning(df_main)
+        display_feature_engineering(df_main)
+        display_variable_settings(df_main)
+        display_download_button(df_main)
+    else:
+        st.info("サイドバーからCSVファイルをアップロードして分析を開始してください。")
+
+if __name__ == "__main__":
+    main()
