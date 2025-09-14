@@ -4,3 +4,4 @@ plotly
 numpy
 mojimoji
 scikit-learn
+seaborn
