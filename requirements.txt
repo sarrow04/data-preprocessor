@@ -5,3 +5,4 @@ numpy
 mojimoji
 scikit-learn
 seaborn
+japanize_matplotlib
