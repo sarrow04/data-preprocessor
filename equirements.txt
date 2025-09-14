@@ -1,0 +1,10 @@
+pandas
+plotly
+numpy
+mojimoji
+scikit-learn
+seaborn
+matplotlib
+japanize-matplotlib
+openpyxl
+setuptools
