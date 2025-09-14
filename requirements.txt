@@ -1,8 +1,12 @@
 pandas==2.3.2
 streamlit
+pandas
 plotly
 numpy
 mojimoji
 scikit-learn
 seaborn
-japanize_matplotlib
+matplotlib
+japanize-matplotlib
+openpyxl
+setuptools
