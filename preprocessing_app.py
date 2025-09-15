@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-preprocessing_app_v28_final
-日付型に変換した "date" 列をデータフレームの先頭に移動する機能を追加
+preprocessing_app_v29_final
+「YYYY年」形式の日付データ変換に対応
 """
 import streamlit as st
 import pandas as pd
@@ -255,23 +255,28 @@ def display_column_wise_cleaning(df):
                         def convert_japanese_date(jp_date_text):
                             if not isinstance(jp_date_text, str): return None
                             text = jp_date_text.replace('元年', '1年')
+                            # ▼▼▼ 変更点：「YYYY年」形式の対応を追加 ▼▼▼
                             try: return pd.to_datetime(text, format='%Y年%m月%d日')
                             except ValueError:
                                 try: return pd.to_datetime(text, format='%Y年%m月')
                                 except ValueError:
-                                    year_str = text.split('年')[0]; year = 0
-                                    if '令和' in year_str: year = int(year_str.replace('令和', '')) + 2018
-                                    elif '平成' in year_str: year = int(year_str.replace('平成', '')) + 1988
-                                    elif '昭和' in year_str: year = int(year_str.replace('昭和', '')) + 1925
-                                    elif '大正' in year_str: year = int(year_str.replace('大正', '')) + 1911
-                                    elif '明治' in year_str: year = int(year_str.replace('明治', '')) + 1867
-                                    if year == 0: return None
-                                    month_day_part = text.split('年')[1]
-                                    if '日' in month_day_part:
-                                        month = int(month_day_part.split('月')[0]); day = int(month_day_part.split('月')[1].replace('日', ''))
-                                    else:
-                                        month = int(month_day_part.replace('月', '')); day = 1
-                                    return pd.to_datetime(f'{year}-{month}-{day}')
+                                    try:
+                                        return pd.to_datetime(text, format='%Y年')
+                                    except ValueError:
+                                        year_str = text.split('年')[0]; year = 0
+                                        if '令和' in year_str: year = int(year_str.replace('令和', '')) + 2018
+                                        elif '平成' in year_str: year = int(year_str.replace('平成', '')) + 1988
+                                        elif '昭和' in year_str: year = int(year_str.replace('昭和', '')) + 1925
+                                        elif '大正' in year_str: year = int(year_str.replace('大正', '')) + 1911
+                                        elif '明治' in year_str: year = int(year_str.replace('明治', '')) + 1867
+                                        if year == 0: return None
+                                        month_day_part = text.split('年')[1]
+                                        if '日' in month_day_part:
+                                            month = int(month_day_part.split('月')[0]); day = int(month_day_part.split('月')[1].replace('日', ''))
+                                        else:
+                                            month = int(month_day_part.replace('月', '')); day = 1
+                                        return pd.to_datetime(f'{year}-{month}-{day}')
+                            # ▲▲▲ 変更ここまで ▲▲▲
                         converted_slice = s.apply(convert_japanese_date)
                     elif date_format_option == "区切り文字なし (例: 20230101)":
                         converted_slice = pd.to_datetime(s, format='%Y%m%d', errors='coerce')
@@ -286,16 +291,12 @@ def display_column_wise_cleaning(df):
                     new_col_name = f"date_{counter}"
                     counter += 1
                 
+                df_copy.insert(0, new_col_name, final_series)
                 df_copy = df_copy.drop(columns=[col_name])
-                # ▼▼▼ 変更点: loc=col_position を loc=0 に変更 ▼▼▼
-                df_copy.insert(loc=0, column=new_col_name, value=final_series)
-                # ▲▲▲ ここまで ▲▲▲
 
                 post_missing = df_copy[new_col_name].isnull().sum()
                 st.session_state.df = df_copy
-                # ▼▼▼ 変更点: 成功メッセージを修正 ▼▼▼
                 st.success(f"列「{col_name}」を日付型に変換し、「{new_col_name}」として先頭列に追加しました。")
-                # ▲▲▲ ここまで ▲▲▲
                 if post_missing > pre_missing: st.warning(f"{post_missing - pre_missing}個のデータが変換に失敗し、欠損値になりました。")
                 st.rerun()
             except Exception as e: st.error(f"変換中にエラーが発生しました: {e}")
