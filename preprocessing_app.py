@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-preprocessing_app_v27_final
-CSVダウンロード時にヘッダーを含めるか選択する機能を追加
+preprocessing_app_v28_final
+日付型に変換した "date" 列をデータフレームの先頭に移動する機能を追加
 """
 import streamlit as st
 import pandas as pd
@@ -286,13 +286,16 @@ def display_column_wise_cleaning(df):
                     new_col_name = f"date_{counter}"
                     counter += 1
                 
-                col_position = df_copy.columns.get_loc(col_name)
                 df_copy = df_copy.drop(columns=[col_name])
-                df_copy.insert(loc=col_position, column=new_col_name, value=final_series)
+                # ▼▼▼ 変更点: loc=col_position を loc=0 に変更 ▼▼▼
+                df_copy.insert(loc=0, column=new_col_name, value=final_series)
+                # ▲▲▲ ここまで ▲▲▲
 
                 post_missing = df_copy[new_col_name].isnull().sum()
                 st.session_state.df = df_copy
-                st.success(f"列「{col_name}」を日付型に変換し、「{new_col_name}」に改名しました。")
+                # ▼▼▼ 変更点: 成功メッセージを修正 ▼▼▼
+                st.success(f"列「{col_name}」を日付型に変換し、「{new_col_name}」として先頭列に追加しました。")
+                # ▲▲▲ ここまで ▲▲▲
                 if post_missing > pre_missing: st.warning(f"{post_missing - pre_missing}個のデータが変換に失敗し、欠損値になりました。")
                 st.rerun()
             except Exception as e: st.error(f"変換中にエラーが発生しました: {e}")
@@ -364,17 +367,12 @@ def display_variable_settings(df):
         else: st.warning("目的変数と説明変数を正しく選択してください。")
 
 def display_download_button(df):
-    """「処理済みデータのダウンロード」セクションを表示する"""
     st.header("✅ 処理済みデータのダウンロード")
-    # ▼▼▼ 変更点1: ヘッダー選択機能の追加 ▼▼▼
     include_header = st.checkbox("ヘッダー行（カラム名）をCSVに含める", value=True)
-    # ▲▲▲ ここまで ▲▲▲
 
     @st.cache_data
-    # ▼▼▼ 変更点2: ヘッダー選択を関数に渡す ▼▼▼
     def convert_df_to_csv(df_to_convert, header_flag):
         return df_to_convert.to_csv(index=False, header=header_flag).encode('utf-8-sig')
-    # ▲▲▲ ここまで ▲▲▲
     
     csv = convert_df_to_csv(df, include_header)
     st.download_button(label="整形済みデータをCSVでダウンロード", data=csv, file_name='cleaned_data.csv', mime='text/csv')
