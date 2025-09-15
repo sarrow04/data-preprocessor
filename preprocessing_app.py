@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-preprocessing_app_v26_final
-日付型に変換した列を自動的に "date" にリネームする機能を追加
+preprocessing_app_v27_final
+CSVダウンロード時にヘッダーを含めるか選択する機能を追加
 """
 import streamlit as st
 import pandas as pd
@@ -187,14 +187,15 @@ def display_column_wise_cleaning(df):
             if fill_method == "指定した値で埋める": fill_value = st.text_input("埋める値を入力してください")
             if st.button("欠損値処理を実行", key=f"btn_fill_{selected_column}"):
                 df_copy = df.copy()
-                series_to_process = df_copy[selected_column].iloc[1:] if exclude_first_row and len(df_copy) > 0 else df_copy[selected_column]
-                
+                series_to_modify = df_copy[selected_column]
+                series_to_process = series_to_modify.iloc[1:] if exclude_first_row and len(series_to_modify) > 0 else series_to_modify
+
                 if fill_method == "平均値で埋める": series_to_process.fillna(series_to_process.mean(), inplace=True)
                 elif fill_method == "中央値で埋める": series_to_process.fillna(series_to_process.median(), inplace=True)
                 elif fill_method == "最頻値で埋める": series_to_process.fillna(series_to_process.mode()[0], inplace=True)
                 elif fill_method == "指定した値で埋める" and fill_value: series_to_process.fillna(fill_value, inplace=True)
                 
-                df_copy[selected_column].update(series_to_process)
+                series_to_modify.update(series_to_process)
                 if fill_method == "行ごと削除する":
                     indices_to_drop = series_to_process[series_to_process.isnull()].index
                     df_copy.drop(indices_to_drop, inplace=True)
@@ -278,10 +279,8 @@ def display_column_wise_cleaning(df):
                 final_series = series_to_modify.copy()
                 if converted_slice is not None: final_series.update(converted_slice)
                 
-                # ▼▼▼ 新機能: カラム名を "date" に強制変更 ▼▼▼
                 new_col_name = "date"
                 counter = 1
-                # 元の列名を除いたリストで重複を確認
                 other_columns = [c for c in df_copy.columns if c != col_name]
                 while new_col_name in other_columns:
                     new_col_name = f"date_{counter}"
@@ -290,7 +289,6 @@ def display_column_wise_cleaning(df):
                 col_position = df_copy.columns.get_loc(col_name)
                 df_copy = df_copy.drop(columns=[col_name])
                 df_copy.insert(loc=col_position, column=new_col_name, value=final_series)
-                # ▲▲▲ ここまで ▲▲▲
 
                 post_missing = df_copy[new_col_name].isnull().sum()
                 st.session_state.df = df_copy
@@ -366,11 +364,19 @@ def display_variable_settings(df):
         else: st.warning("目的変数と説明変数を正しく選択してください。")
 
 def display_download_button(df):
+    """「処理済みデータのダウンロード」セクションを表示する"""
     st.header("✅ 処理済みデータのダウンロード")
+    # ▼▼▼ 変更点1: ヘッダー選択機能の追加 ▼▼▼
+    include_header = st.checkbox("ヘッダー行（カラム名）をCSVに含める", value=True)
+    # ▲▲▲ ここまで ▲▲▲
+
     @st.cache_data
-    def convert_df_to_csv(df_to_convert):
-        return df_to_convert.to_csv(index=False).encode('utf-8-sig')
-    csv = convert_df_to_csv(df)
+    # ▼▼▼ 変更点2: ヘッダー選択を関数に渡す ▼▼▼
+    def convert_df_to_csv(df_to_convert, header_flag):
+        return df_to_convert.to_csv(index=False, header=header_flag).encode('utf-8-sig')
+    # ▲▲▲ ここまで ▲▲▲
+    
+    csv = convert_df_to_csv(df, include_header)
     st.download_button(label="整形済みデータをCSVでダウンロード", data=csv, file_name='cleaned_data.csv', mime='text/csv')
 
 def main():
