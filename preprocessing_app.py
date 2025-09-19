@@ -34,7 +34,7 @@ def display_sidebar():
             if st.session_state.uploaded_file_name != uploaded_file.name:
                 df = None
                 try:
-                    df = pd.read_csv(uploaded_file, header=None, engine='python'))
+                    df = pd.read_csv(uploaded_file, header=None, engine='python')
                 except UnicodeDecodeError:
                     try:
                         st.sidebar.warning("UTF-8での読み込みに失敗。Shift-JISで再試行します。")
@@ -395,4 +395,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
