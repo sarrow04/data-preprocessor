@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-preprocessing_app_v34_skip_bad_lines
-エラー行を完全に無視する on_bad_lines='skip' に変更
+preprocessing_app_v35_dedupe_header_check
+ヘッダー設定時に列名の重複をチェックする機能を追加
 """
 import streamlit as st
 import pandas as pd
@@ -34,13 +34,11 @@ def display_sidebar():
             if st.session_state.uploaded_file_name != uploaded_file.name:
                 df = None
                 try:
-                    # ▼▼▼【修正点1】on_bad_lines='skip' に変更 ▼▼▼
                     df = pd.read_csv(uploaded_file, header=None, engine='python', on_bad_lines='skip')
                 except UnicodeDecodeError:
                     try:
                         st.sidebar.warning("UTF-8での読み込みに失敗。Shift-JISで再試行します。")
                         uploaded_file.seek(0)
-                        # ▼▼▼【修正点2】on_bad_lines='skip' に変更 ▼▼▼
                         df = pd.read_csv(uploaded_file, header=None, encoding='cp932', engine='python', on_bad_lines='skip')
                     except Exception as e:
                         st.error(f"Shift-JISでも読み込みに失敗しました: {e}")
@@ -137,20 +135,31 @@ def display_global_cleaning(df):
     )
 
     if st.button("指定行をヘッダーとして設定し、それより上を削除"):
+        # ▼▼▼【ここから修正】▼▼▼
         if header_row >= len(df):
             st.error(f"エラー: 指定された行番号 {header_row} はデータの範囲外です。このデータは {len(df)} 行（0から{len(df)-1}まで）しかありません。")
         else:
             try:
                 df_copy = df.copy()
-                new_header = df_copy.iloc[header_row].astype(str)
-                df_copy = df_copy.iloc[header_row + 1:]
-                df_copy.columns = new_header
-                df_copy.reset_index(drop=True, inplace=True)
-                st.session_state.df = df_copy
-                st.success(f"{header_row}行目を新しいヘッダーに設定し、データフレームを更新しました。")
-                st.rerun()
+                # 新しいヘッダー候補を取得し、欠損値を'untitled'で埋める
+                potential_header = df_copy.iloc[header_row].astype(str).fillna('untitled')
+                
+                # ヘッダー候補に重複がないかチェック
+                if potential_header.duplicated().any():
+                    duplicates = potential_header[potential_header.duplicated()].unique().tolist()
+                    st.error(f"エラー: {header_row}行目には重複した値が含まれているため、ヘッダーとして設定できません。")
+                    st.write("重複している値:", duplicates)
+                else:
+                    # 重複がなければ処理を続行
+                    df_copy = df_copy.iloc[header_row + 1:]
+                    df_copy.columns = potential_header
+                    df_copy.reset_index(drop=True, inplace=True)
+                    st.session_state.df = df_copy
+                    st.success(f"{header_row}行目を新しいヘッダーに設定し、データフレームを更新しました。")
+                    st.rerun()
             except Exception as e:
                 st.error(f"処理中にエラーが発生しました: {e}")
+        # ▲▲▲【ここまで修正】▲▲▲
     st.markdown("---")
 
     st.subheader("列の一括削除")
@@ -268,11 +277,12 @@ def display_column_wise_cleaning(df):
                                     try:
                                         return pd.to_datetime(text, format='%Y年')
                                     except ValueError:
-                                        # This part is complex and might be error-prone, but keeping it for now
                                         year_str = text.split('年')[0]; year = 0
                                         if '令和' in year_str: year = int(year_str.replace('令和', '')) + 2018
                                         elif '平成' in year_str: year = int(year_str.replace('平成', '')) + 1988
-                                        # Add other eras if needed
+                                        elif '昭和' in year_str: year = int(year_str.replace('昭和', '')) + 1925
+                                        elif '大正' in year_str: year = int(year_str.replace('大正', '')) + 1911
+                                        elif '明治' in year_str: year = int(year_str.replace('明治', '')) + 1867
                                         if year == 0: return None
                                         try:
                                             month_day_part = text.split('年')[1]
@@ -283,7 +293,6 @@ def display_column_wise_cleaning(df):
                                             return pd.to_datetime(f'{year}-{month}-{day}')
                                         except (IndexError, ValueError):
                                             return pd.to_datetime(f'{year}-01-01')
-
                         converted_slice = s.apply(convert_japanese_date)
                     elif date_format_option == "区切り文字なし (例: 20230101)":
                         converted_slice = pd.to_datetime(s, format='%Y%m%d', errors='coerce')
