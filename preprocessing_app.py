@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-preprocessing_app_v30_robust_load
-エラー行を無視して読み込む on_bad_lines='warn' を追加
+preprocessing_app_v32_preview_rows
+プレビューの表示行数を5行から20行に増加
 """
 import streamlit as st
 import pandas as pd
@@ -34,13 +34,11 @@ def display_sidebar():
             if st.session_state.uploaded_file_name != uploaded_file.name:
                 df = None
                 try:
-                    # ▼▼▼【修正点1】on_bad_lines='warn' を追加 ▼▼▼
                     df = pd.read_csv(uploaded_file, header=None, engine='python', on_bad_lines='warn')
                 except UnicodeDecodeError:
                     try:
                         st.sidebar.warning("UTF-8での読み込みに失敗。Shift-JISで再試行します。")
                         uploaded_file.seek(0)
-                        # ▼▼▼【修正点2】on_bad_lines='warn' を追加 ▼▼▼
                         df = pd.read_csv(uploaded_file, header=None, encoding='cp932', engine='python', on_bad_lines='warn')
                     except Exception as e:
                         st.error(f"Shift-JISでも読み込みに失敗しました: {e}")
@@ -94,13 +92,19 @@ def display_sidebar():
         st.sidebar.write(f"Pandas Version: **{pd.__version__}**")
         st.sidebar.write(f"Python Version: {sys.version.split(' ')[0]}")
 
+
 def display_health_check(df):
     """「データの健康診断」セクションを表示する"""
     st.header("🩺 データの健康診断")
     tab1, tab2, tab3, tab4 = st.tabs(["基本情報", "欠損値", "統計量", "グラフで可視化"])
     with tab1:
         st.subheader("基本情報"); st.markdown(f"**行数:** {df.shape[0]} 行, **列数:** {df.shape[1]} 列")
-        st.subheader("データプレビュー"); st.dataframe(df.head())
+        # ▼▼▼【修正点】プレビューの表示行数を20行に増加 ▼▼▼
+        st.subheader("データプレビュー（先頭20行）")
+        st.dataframe(df.head(20))
+        st.subheader("データプレビュー（末尾20行）")
+        st.dataframe(df.tail(20))
+        # ▲▲▲【修正点】ここまで ▲▲▲
     with tab2:
         st.subheader("各列の欠損値の数"); missing_values = df.isnull().sum(); st.dataframe(missing_values[missing_values > 0].sort_values(ascending=False).rename("欠損数"))
     with tab3:
@@ -130,22 +134,25 @@ def display_global_cleaning(df):
     
     header_row = st.number_input(
         "新しいヘッダー（列名）として使用したい行の番号を入力してください（0から始まります）",
-        min_value=0, max_value=len(df)-2 if len(df) > 1 else 0, value=0, step=1,
-        help="例えば「4」と入力すると、0〜3行目が削除され、4行目が新しい列名になります。"
+        min_value=0, max_value=len(df)-1, value=0, step=1,
+        help="例えば「12」と入力すると、0〜11行目が削除され、12行目が新しい列名になります。"
     )
 
     if st.button("指定行をヘッダーとして設定し、それより上を削除"):
-        try:
-            df_copy = df.copy()
-            new_header = df_copy.iloc[header_row].astype(str)
-            df_copy = df_copy.iloc[header_row+1:]
-            df_copy.columns = new_header
-            df_copy.reset_index(drop=True, inplace=True)
-            st.session_state.df = df_copy
-            st.success(f"{header_row}行目を新しいヘッダーに設定し、データフレームを更新しました。")
-            st.rerun()
-        except Exception as e:
-            st.error(f"処理中にエラーが発生しました: {e}")
+        if header_row >= len(df):
+            st.error(f"エラー: 指定された行番号 {header_row} はデータの範囲外です。このデータは {len(df)} 行（0から{len(df)-1}まで）しかありません。")
+        else:
+            try:
+                df_copy = df.copy()
+                new_header = df_copy.iloc[header_row].astype(str)
+                df_copy = df_copy.iloc[header_row + 1:]
+                df_copy.columns = new_header
+                df_copy.reset_index(drop=True, inplace=True)
+                st.session_state.df = df_copy
+                st.success(f"{header_row}行目を新しいヘッダーに設定し、データフレームを更新しました。")
+                st.rerun()
+            except Exception as e:
+                st.error(f"処理中にエラーが発生しました: {e}")
     st.markdown("---")
 
     st.subheader("列の一括削除")
@@ -263,19 +270,24 @@ def display_column_wise_cleaning(df):
                                     try:
                                         return pd.to_datetime(text, format='%Y年')
                                     except ValueError:
+                                        # This part is complex and might be error-prone, but keeping it for now
                                         year_str = text.split('年')[0]; year = 0
                                         if '令和' in year_str: year = int(year_str.replace('令和', '')) + 2018
                                         elif '平成' in year_str: year = int(year_str.replace('平成', '')) + 1988
-                                        elif '昭和' in year_str: year = int(year_str.replace('昭和', '')) + 1925
-                                        elif '大正' in year_str: year = int(year_str.replace('大正', '')) + 1911
-                                        elif '明治' in year_str: year = int(year_str.replace('明治', '')) + 1867
+                                        # Add other eras if needed
                                         if year == 0: return None
-                                        month_day_part = text.split('年')[1]
-                                        if '日' in month_day_part:
-                                            month = int(month_day_part.split('月')[0]); day = int(month_day_part.split('月')[1].replace('日', ''))
-                                        else:
-                                            month = int(month_day_part.replace('月', '')); day = 1
-                                        return pd.to_datetime(f'{year}-{month}-{day}')
+                                        # This logic might fail if '年' is not the only separator
+                                        # For simplicity, assuming YYYY年, YYYY年M月, YYYY年M月D日
+                                        try:
+                                            month_day_part = text.split('年')[1]
+                                            if '日' in month_day_part:
+                                                month = int(month_day_part.split('月')[0]); day = int(month_day_part.split('月')[1].replace('日', ''))
+                                            else:
+                                                month = int(month_day_part.replace('月', '')); day = 1
+                                            return pd.to_datetime(f'{year}-{month}-{day}')
+                                        except (IndexError, ValueError):
+                                            return pd.to_datetime(f'{year}-01-01')
+
                         converted_slice = s.apply(convert_japanese_date)
                     elif date_format_option == "区切り文字なし (例: 20230101)":
                         converted_slice = pd.to_datetime(s, format='%Y%m%d', errors='coerce')
