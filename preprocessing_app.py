@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-preprocessing_app_v29_final
-「YYYY年」形式の日付データ変換に対応
+preprocessing_app_v30_robust_load
+エラー行を無視して読み込む on_bad_lines='warn' を追加
 """
 import streamlit as st
 import pandas as pd
@@ -34,12 +34,14 @@ def display_sidebar():
             if st.session_state.uploaded_file_name != uploaded_file.name:
                 df = None
                 try:
-                    df = pd.read_csv(uploaded_file, header=None, engine='python')
+                    # ▼▼▼【修正点1】on_bad_lines='warn' を追加 ▼▼▼
+                    df = pd.read_csv(uploaded_file, header=None, engine='python', on_bad_lines='warn')
                 except UnicodeDecodeError:
                     try:
                         st.sidebar.warning("UTF-8での読み込みに失敗。Shift-JISで再試行します。")
                         uploaded_file.seek(0)
-                        df = pd.read_csv(uploaded_file, header=None, encoding='cp932')
+                        # ▼▼▼【修正点2】on_bad_lines='warn' を追加 ▼▼▼
+                        df = pd.read_csv(uploaded_file, header=None, encoding='cp932', engine='python', on_bad_lines='warn')
                     except Exception as e:
                         st.error(f"Shift-JISでも読み込みに失敗しました: {e}")
                 except Exception as e:
@@ -88,10 +90,9 @@ def display_sidebar():
                 st.session_state.feature_cols = None
                 st.info("データが最初の状態にリセットされました。"); st.rerun()
 
-        st.subheader("🧪 環境情報")
-        st.write(f"Pandas Version: **{pd.__version__}**")
-        st.write(f"Python Version: {sys.version.split(' ')[0]}")
-
+        st.sidebar.subheader("🧪 環境情報")
+        st.sidebar.write(f"Pandas Version: **{pd.__version__}**")
+        st.sidebar.write(f"Python Version: {sys.version.split(' ')[0]}")
 
 def display_health_check(df):
     """「データの健康診断」セクションを表示する"""
@@ -255,7 +256,6 @@ def display_column_wise_cleaning(df):
                         def convert_japanese_date(jp_date_text):
                             if not isinstance(jp_date_text, str): return None
                             text = jp_date_text.replace('元年', '1年')
-                            # ▼▼▼ 変更点：「YYYY年」形式の対応を追加 ▼▼▼
                             try: return pd.to_datetime(text, format='%Y年%m月%d日')
                             except ValueError:
                                 try: return pd.to_datetime(text, format='%Y年%m月')
@@ -276,7 +276,6 @@ def display_column_wise_cleaning(df):
                                         else:
                                             month = int(month_day_part.replace('月', '')); day = 1
                                         return pd.to_datetime(f'{year}-{month}-{day}')
-                            # ▲▲▲ 変更ここまで ▲▲▲
                         converted_slice = s.apply(convert_japanese_date)
                     elif date_format_option == "区切り文字なし (例: 20230101)":
                         converted_slice = pd.to_datetime(s, format='%Y%m%d', errors='coerce')
@@ -395,5 +394,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
