@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-preprocessing_app_v32_preview_rows
-プレビューの表示行数を5行から20行に増加
+preprocessing_app_v33_head_only_preview
+プレビューを先頭20行のみの表示に修正
 """
 import streamlit as st
 import pandas as pd
@@ -29,7 +29,7 @@ def display_sidebar():
     with st.sidebar:
         st.header("1. ファイルをアップロード")
         uploaded_file = st.file_uploader("CSVファイルをアップロードしてください", type=['csv'])
-        
+
         if uploaded_file is not None:
             if st.session_state.uploaded_file_name != uploaded_file.name:
                 df = None
@@ -44,7 +44,7 @@ def display_sidebar():
                         st.error(f"Shift-JISでも読み込みに失敗しました: {e}")
                 except Exception as e:
                     st.error(f"ファイルの読み込み中に予期せぬエラーが発生しました: {e}")
-                
+
                 if df is not None:
                     st.session_state.uploaded_file_name = uploaded_file.name
                     st.session_state.df = df
@@ -99,11 +99,9 @@ def display_health_check(df):
     tab1, tab2, tab3, tab4 = st.tabs(["基本情報", "欠損値", "統計量", "グラフで可視化"])
     with tab1:
         st.subheader("基本情報"); st.markdown(f"**行数:** {df.shape[0]} 行, **列数:** {df.shape[1]} 列")
-        # ▼▼▼【修正点】プレビューの表示行数を20行に増加 ▼▼▼
+        # ▼▼▼【修正点】プレビューを先頭20行のみに修正 ▼▼▼
         st.subheader("データプレビュー（先頭20行）")
         st.dataframe(df.head(20))
-        st.subheader("データプレビュー（末尾20行）")
-        st.dataframe(df.tail(20))
         # ▲▲▲【修正点】ここまで ▲▲▲
     with tab2:
         st.subheader("各列の欠損値の数"); missing_values = df.isnull().sum(); st.dataframe(missing_values[missing_values > 0].sort_values(ascending=False).rename("欠損数"))
