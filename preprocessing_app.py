@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-preprocessing_app_v33_head_only_preview
-プレビューを先頭20行のみの表示に修正
+preprocessing_app_v34_skip_bad_lines
+エラー行を完全に無視する on_bad_lines='skip' に変更
 """
 import streamlit as st
 import pandas as pd
@@ -34,12 +34,14 @@ def display_sidebar():
             if st.session_state.uploaded_file_name != uploaded_file.name:
                 df = None
                 try:
-                    df = pd.read_csv(uploaded_file, header=None, engine='python', on_bad_lines='warn')
+                    # ▼▼▼【修正点1】on_bad_lines='skip' に変更 ▼▼▼
+                    df = pd.read_csv(uploaded_file, header=None, engine='python', on_bad_lines='skip')
                 except UnicodeDecodeError:
                     try:
                         st.sidebar.warning("UTF-8での読み込みに失敗。Shift-JISで再試行します。")
                         uploaded_file.seek(0)
-                        df = pd.read_csv(uploaded_file, header=None, encoding='cp932', engine='python', on_bad_lines='warn')
+                        # ▼▼▼【修正点2】on_bad_lines='skip' に変更 ▼▼▼
+                        df = pd.read_csv(uploaded_file, header=None, encoding='cp932', engine='python', on_bad_lines='skip')
                     except Exception as e:
                         st.error(f"Shift-JISでも読み込みに失敗しました: {e}")
                 except Exception as e:
@@ -99,10 +101,8 @@ def display_health_check(df):
     tab1, tab2, tab3, tab4 = st.tabs(["基本情報", "欠損値", "統計量", "グラフで可視化"])
     with tab1:
         st.subheader("基本情報"); st.markdown(f"**行数:** {df.shape[0]} 行, **列数:** {df.shape[1]} 列")
-        # ▼▼▼【修正点】プレビューを先頭20行のみに修正 ▼▼▼
         st.subheader("データプレビュー（先頭20行）")
         st.dataframe(df.head(20))
-        # ▲▲▲【修正点】ここまで ▲▲▲
     with tab2:
         st.subheader("各列の欠損値の数"); missing_values = df.isnull().sum(); st.dataframe(missing_values[missing_values > 0].sort_values(ascending=False).rename("欠損数"))
     with tab3:
@@ -274,8 +274,6 @@ def display_column_wise_cleaning(df):
                                         elif '平成' in year_str: year = int(year_str.replace('平成', '')) + 1988
                                         # Add other eras if needed
                                         if year == 0: return None
-                                        # This logic might fail if '年' is not the only separator
-                                        # For simplicity, assuming YYYY年, YYYY年M月, YYYY年M月D日
                                         try:
                                             month_day_part = text.split('年')[1]
                                             if '日' in month_day_part:
