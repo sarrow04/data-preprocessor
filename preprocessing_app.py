@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-preprocessing_app_v35_dedupe_header_check
-ヘッダー設定時に列名の重複をチェックする機能を追加
+preprocessing_app_v36_datetime_support
+'YYYY-MM-DD HH:MM:SS' 形式の日付変換サポートを追加
 """
 import streamlit as st
 import pandas as pd
@@ -135,22 +135,18 @@ def display_global_cleaning(df):
     )
 
     if st.button("指定行をヘッダーとして設定し、それより上を削除"):
-        # ▼▼▼【ここから修正】▼▼▼
         if header_row >= len(df):
             st.error(f"エラー: 指定された行番号 {header_row} はデータの範囲外です。このデータは {len(df)} 行（0から{len(df)-1}まで）しかありません。")
         else:
             try:
                 df_copy = df.copy()
-                # 新しいヘッダー候補を取得し、欠損値を'untitled'で埋める
                 potential_header = df_copy.iloc[header_row].astype(str).fillna('untitled')
                 
-                # ヘッダー候補に重複がないかチェック
                 if potential_header.duplicated().any():
                     duplicates = potential_header[potential_header.duplicated()].unique().tolist()
                     st.error(f"エラー: {header_row}行目には重複した値が含まれているため、ヘッダーとして設定できません。")
                     st.write("重複している値:", duplicates)
                 else:
-                    # 重複がなければ処理を続行
                     df_copy = df_copy.iloc[header_row + 1:]
                     df_copy.columns = potential_header
                     df_copy.reset_index(drop=True, inplace=True)
@@ -159,7 +155,6 @@ def display_global_cleaning(df):
                     st.rerun()
             except Exception as e:
                 st.error(f"処理中にエラーが発生しました: {e}")
-        # ▲▲▲【ここまで修正】▲▲▲
     st.markdown("---")
 
     st.subheader("列の一括削除")
@@ -246,8 +241,19 @@ def display_column_wise_cleaning(df):
                     st.rerun()
                 except Exception as e: st.error(f"変換に失敗しました: {e}")
     
+    # ▼▼▼【ここから修正】▼▼▼
     with st.expander("日付型への変換"):
-        date_format_option = st.radio("データの形式を選択", ("標準的な形式 (例: 2023-01-01, 2023/1/1)", "日本の形式 (例: 2023年1月1日, 令和5年1月1日)", "区切り文字なし (例: 20230101)", "Excelのシリアル値 (例: 45123)"), key=f"date_{selected_column}")
+        date_format_option = st.radio(
+            "データの形式を選択",
+            (
+                "標準的な形式 (例: 2023-01-01, 2023/1/1)",
+                "日時形式 (YYYY-MM-DD HH:MM:SS)",
+                "日本の形式 (例: 2023年1月1日, 令和5年1月1日)",
+                "区切り文字なし (例: 20230101)",
+                "Excelのシリアル値 (例: 45123)"
+            ),
+            key=f"date_{selected_column}"
+        )
         if st.button("日付型に変換を実行", key=f"btn_date_{selected_column}"):
             try:
                 df_copy = df.copy()
@@ -261,12 +267,20 @@ def display_column_wise_cleaning(df):
                     numeric_series = pd.to_numeric(target_slice, errors='coerce')
                     converted_slice = pd.to_datetime(numeric_series, unit='D', origin='1899-12-30')
                 else:
-                    s = target_slice.astype(str).dropna()
-                    s = s.apply(lambda x: mojimoji.zen_to_han(x, kana=False)); s = s.str.replace(r'\s+', '', regex=True)
+                    # 共通の前処理として、まず全角を半角に変換
+                    s_base = target_slice.astype(str).dropna().apply(lambda x: mojimoji.zen_to_han(x, kana=False))
+
                     if date_format_option == "標準的な形式 (例: 2023-01-01, 2023/1/1)":
+                        s = s_base.str.replace(r'\s+', '', regex=True) # スペースを削除
                         res1 = pd.to_datetime(s, errors='coerce'); res2 = pd.to_datetime(s, format='%Y-%m', errors='coerce'); res3 = pd.to_datetime(s, format='%Y/%m', errors='coerce')
                         converted_slice = res1.fillna(res2).fillna(res3)
+
+                    elif date_format_option == "日時形式 (YYYY-MM-DD HH:MM:SS)":
+                        # 日時形式ではスペースは削除しない
+                        converted_slice = pd.to_datetime(s_base, errors='coerce')
+
                     elif date_format_option == "日本の形式 (例: 2023年1月1日, 令和5年1月1日)":
+                        s = s_base.str.replace(r'\s+', '', regex=True) # スペースを削除
                         def convert_japanese_date(jp_date_text):
                             if not isinstance(jp_date_text, str): return None
                             text = jp_date_text.replace('元年', '1年')
@@ -294,7 +308,9 @@ def display_column_wise_cleaning(df):
                                         except (IndexError, ValueError):
                                             return pd.to_datetime(f'{year}-01-01')
                         converted_slice = s.apply(convert_japanese_date)
+
                     elif date_format_option == "区切り文字なし (例: 20230101)":
+                        s = s_base.str.replace(r'\s+', '', regex=True) # スペースを削除
                         converted_slice = pd.to_datetime(s, format='%Y%m%d', errors='coerce')
                 
                 final_series = series_to_modify.copy()
@@ -316,6 +332,7 @@ def display_column_wise_cleaning(df):
                 if post_missing > pre_missing: st.warning(f"{post_missing - pre_missing}個のデータが変換に失敗し、欠損値になりました。")
                 st.rerun()
             except Exception as e: st.error(f"変換中にエラーが発生しました: {e}")
+    # ▲▲▲【ここまで修正】▲▲▲
 
     if pd.api.types.is_string_dtype(df[selected_column]):
         with st.expander("文字列のクレンジング"):
